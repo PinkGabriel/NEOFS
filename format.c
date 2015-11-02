@@ -26,7 +26,7 @@ int block_group_format(int bgnum,int groupcnt)
 	if (is_powerof_357(bgnum)){	//写入超级块和GDT
 		neo_sb_info.s_block_group_nr = bgnum;
 		fwrite(&neo_sb_info,sizeof(struct neo_super_block),1,fp);
-		fseek(fp,offset + 1024,SEEK_SET);
+		fseek(fp,offset + 4096,SEEK_SET);
 		fwrite(gd,sizeof(struct neo_group_desc),groupcnt,fp);
 		bbitmap[32] = 0xF0;
 	}else
@@ -65,8 +65,8 @@ int main(int argc,char *argv[])
 		printf("image file bigger than 16GB");
 		return -1;
 	}
-	blkcnt = length / BLOCK_SIZE; 
 
+	blkcnt = length / BLOCK_SIZE; 
 	groupcnt = blkcnt / BLOCKS_PER_GROUP;
 	remainder = blkcnt % BLOCKS_PER_GROUP;
 	if (remainder > 2560){//bigger than 10MB 's blocks count
