@@ -1,4 +1,6 @@
 #include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
 #include"neo_fs.h"
 #include<time.h>
 
@@ -6,21 +8,39 @@
 
 struct neo_super_block neo_sb_info;
 struct neo_group_desc neo_gd_info;
+struct neo_group_desc *gd;
+FILE *fp = NULL;
 
-int block_group_format(int bgnum)
+int block_group_format(int bgnum,int groupcnt)
 {
-	struct neo_super_block tmp_sb = neo_sb_info;
-	if (pow(3,(int)(log(bgnum)/log(3))) == bgnum)
-		
+	char bbitmap[BLOCK_SIZE];	//block bitmap
+	char ibitmap[BLOCK_SIZE];	//inode bitmap
+	__u64 offset = bgnum * BLOCKS_PER_GROUP * BLOCK_SIZE;
+	fseek(fp,offset,SEEK_SET);
+	if (offset == 0)
+		fseek(fp,1024,SEEK_CUR);//引导块占用1KB
+	memset(bbitmap,0,BLOCK_SIZE);
+	memset(bbitmap,0xFF,32);	//前258/260个block存储元数据
+	memset(ibitmap,0xFF,BLOCK_SIZE);
+	memset(ibitmap,0,(BLOCK_SIZE / 4));
+	if (is_powerof_357(bgnum)){	//写入超级块和GDT
+		neo_sb_info.s_block_group_nr = bgnum;
+		fwrite(&neo_sb_info,sizeof(struct neo_super_block),1,fp);
+		fseek(fp,offset + 1024,SEEK_SET);
+		fwrite(gd,sizeof(struct neo_group_desc),groupcnt,fp);
+		bbitmap[32] = 0xF0;
+	}else
+		bbitmap[32] = 0xC0;
+	fwrite(bbitmap,BLOCK_SIZE,1,fp);
+	fwrite(ibitmap,BLOCK_SIZE,1,fp);
 }
 
 int main(int argc,char *argv[])
 {
-	FILE *fp = NULL;
 	long length;
 	int groupcnt;
 	/*n记录完整的块组的个数*/
-	int i,n;
+	int i,n,extraoff;
 	__u32 blkcnt,inocnt;
 	__u16 remainder,iremainder;
 
@@ -29,7 +49,7 @@ int main(int argc,char *argv[])
 		return -1;
 	}
 
-#ifdef DEBUG
+#ifdef DEBUG_SIZE
 	printf("sizeof sb %d\n",sizeof(struct neo_super_block));
 	printf("sizeof gd %d\n",sizeof(struct neo_group_desc));
 	printf("sizeof inode %d\n",sizeof(struct neo_inode));
@@ -87,17 +107,41 @@ int main(int argc,char *argv[])
 	printf("sb magic#: %d\n",neo_sb_info.s_magic);
 	printf("sb inode size: %d\n",neo_sb_info.s_inode_size);
 #endif
+	/*初始化GDT*/
+	gd = (struct neo_group_desc *)malloc(sizeof(struct neo_group_desc) * groupcnt); 
+
 	/*n记录完整的块组的个数*/
 	if (remainder == 0)
 		n = groupcnt;
 	else
 		n = groupcnt - 1;
+	extraoff = 0;
 	for (i = 0; i < n; i++){
-		block_group_format(i);
+		if (is_powerof_357(i))
+			extraoff = 2;
+		gd[i].bg_block_bitmap = (BLOCKS_PER_GROUP * i) + extraoff;
+		gd[i].bg_inode_bitmap = (BLOCKS_PER_GROUP * i) + extraoff + 1;
+		gd[i].bg_inode_table = (BLOCKS_PER_GROUP * i) + extraoff + 2;
+		gd[i].bg_free_blocks_count = BLOCKS_PER_GROUP;
+		gd[i].bg_free_inodes_count = BLOCKS_PER_GROUP / 4;
+		gd[i].bg_used_dirs_count = 0;
+		extraoff = 0;
+	}
+	if (remainder != 0){
+		if (is_powerof_357(i))
+			extraoff = 2;
+		gd[i].bg_block_bitmap = (BLOCKS_PER_GROUP * i) + extraoff;
+		gd[i].bg_inode_bitmap = (BLOCKS_PER_GROUP * i) + extraoff + 1;
+		gd[i].bg_inode_table = (BLOCKS_PER_GROUP * i) + extraoff + 2;
+		gd[i].bg_free_blocks_count = remainder;
+		gd[i].bg_free_inodes_count = iremainder;
+		gd[i].bg_used_dirs_count = 0;
 	}
 
-
-
+	for (i = 0; i < n; i++){
+		block_group_format(i,groupcnt);
+	}
+//	add_root();
 
 }
 

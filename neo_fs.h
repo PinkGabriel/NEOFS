@@ -1,9 +1,13 @@
+#include<math.h>
 
 #define NEO_BLOCKS 15
 #define MAX_FS_SIZE 17179869184
 #define BLOCKS_PER_GROUP (BLOCK_SIZE * 8)
 #define BLOCK_SIZE (1024<<LOG_BLOCK_SIZE)
 #define LOG_BLOCK_SIZE 2
+#define FIRST_FREE_BLOCK 260	/*metadata used 256+4=260 blocks*/
+
+//#define bgid_to_bgaddr(bg) ()
 
 typedef unsigned long	__u64;
 typedef unsigned int	__u32;
@@ -51,4 +55,12 @@ struct neo_inode
 	__u16  bg_pad;			/*16bit配合上边的32+16对齐8Byte*/
 	__u64  bg_reserved[3];		/*3个保留域配上上一个pad正好16Byte*/
 };
+
+int is_powerof_357(int i)
+{
+	if (pow(3,(int)(float)(log(i)/log(3))) == i || pow(5,(int)(float)(log(i)/log(5))) == i || 
+		pow(7,(int)(float)(log(i)/log(7))) == i || i == 0)
+		return 1;
+	return 0;
+}
 
