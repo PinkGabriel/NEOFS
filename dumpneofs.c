@@ -5,8 +5,11 @@
 #include<time.h>
 #include<math.h>
 
+//#define DEBUG
+
 void print_sb(struct neo_super_block neo_sb_info)
 {
+	printf("super block:\n");
 	printf("sb inodes count: %d\n",neo_sb_info.s_inodes_count);
 	printf("sb blocks count: %d\n",neo_sb_info.s_blocks_count);
 	printf("sb free inodes count: %d\n",neo_sb_info.s_inodes_count);
@@ -21,13 +24,15 @@ void print_sb(struct neo_super_block neo_sb_info)
 void print_gdt(struct neo_group_desc *gdt,int groupcnt)
 {
 	int i;
+	printf("GDT:\n");
 	for (i = 0; i < groupcnt; i++){
-		printf("gd[%d] bbitmap: %d\n",i,gdt[i].bg_block_bitmap);
-		printf("gd[%d] ibitmap: %d\n",i,gdt[i].bg_inode_bitmap);
-		printf("gd[%d] inodetable: %d\n",i,gdt[i].bg_inode_table);
-		printf("gd[%d] free blocks count: %d\n",i,gdt[i].bg_free_blocks_count);
-		printf("gd[%d] free inodes count: %d\n",i,gdt[i].bg_free_inodes_count);
-		printf("gd[%d] used dirs count: %d\n\n",i,gdt[i].bg_used_dirs_count);
+		printf("group %d :\n",i);
+		printf("block bitmap: %d\n",gdt[i].bg_block_bitmap);
+		printf("inode bitmap: %d\n",gdt[i].bg_inode_bitmap);
+		printf("inode table: %d\n",gdt[i].bg_inode_table);
+		printf("free blocks count: %d\n",gdt[i].bg_free_blocks_count);
+		printf("free inodes count: %d\n",gdt[i].bg_free_inodes_count);
+		printf("used dirs count: %d\n\n",gdt[i].bg_used_dirs_count);
 	}
 }
 
@@ -64,9 +69,8 @@ int main(int argc,char *argv[])
 	fread(gd,sizeof(struct neo_group_desc) * groupcnt,1,fp);
 
 	print_sb(neo_sb_info);
-#ifdef DEBUG
 	print_gdt(gd,groupcnt);
-#endif
+#ifdef DEBUG
 	printf("block count: %d\n",blkcnt);
 	printf("group count: %d\n",groupcnt);
 	for (i = 0; i < groupcnt; i++){
@@ -77,13 +81,15 @@ int main(int argc,char *argv[])
 			fseek(fp,1024,SEEK_CUR);//引导块占用1KB
 		if (is_powerof_357(i)){
 			printf("group %d has backup of super block and GDT\n",i);
-#ifdef DEBUG
 			fread(&tmp,sizeof(struct neo_super_block),1,fp);
 			fseek(fp,offset + 4096,SEEK_SET);
 			fread(debugtmp,sizeof(struct neo_group_desc) * groupcnt,1,fp);
-#endif
-		}
+			print_sb(tmp);
+			print_gdt(debugtmp,groupcnt);
+		}else
+			printf("group %d doesn't have backup\n\n",i);
 	}
+#endif
 
 
 
