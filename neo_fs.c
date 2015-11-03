@@ -108,26 +108,6 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	return 0;
 }
 
-static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
-{
-	int res;
-
-	/* On Linux this could just be 'mknod(path, mode, rdev)' but this
-	   is more portable */
-	if (S_ISREG(mode)) {
-		res = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
-		if (res >= 0)
-			res = close(res);
-	} else if (S_ISFIFO(mode))
-		res = mkfifo(path, mode);
-	else
-		res = mknod(path, mode, rdev);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
 static int neo_mkdir(const char *path, mode_t mode)
 {
 	int res;
@@ -399,7 +379,7 @@ static int neo_removexattr(const char *path, const char *name)
 void *neo_init (struct fuse_conn_info *conn)
 {
 	int groupcnt;
-	if ((fp = fopen("DISKIMG","rb+")) == NULL){
+	if ((fp = fopen(DISKIMG,"rb+")) == NULL){
 		printf("image file open failed\n");
 		exit(1);
 	}
@@ -410,9 +390,30 @@ void *neo_init (struct fuse_conn_info *conn)
 		groupcnt ++;
 	fseek(fp,4096,SEEK_SET);
 	neo_gdt = (struct neo_group_desc *)malloc(sizeof(struct neo_group_desc) * groupcnt);
+	fread(neo_gdt,sizeof(struct neo_group_desc),groupcnt,fp);
 
-	print_sb(neo_sb_info);
-	print_gdt(neo_gdt,groupcnt);
+//	print_sb(neo_sb_info);
+//	print_gdt(neo_gdt,groupcnt);
+
+	return 0;
+}
+
+static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
+{
+	int res;
+
+	/* On Linux this could just be 'mknod(path, mode, rdev)' but this
+	   is more portable */
+	if (S_ISREG(mode)) {
+		res = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
+		if (res >= 0)
+			res = close(res);
+	} else if (S_ISFIFO(mode))
+		res = mkfifo(path, mode);
+	else
+		res = mknod(path, mode, rdev);
+	if (res == -1)
+		return -errno;
 
 	return 0;
 }
@@ -420,13 +421,13 @@ void *neo_init (struct fuse_conn_info *conn)
 static struct fuse_operations neo_oper = {
 
 	.init		= neo_init,
-	.open		= neo_open,
+	.mknod		= neo_mknod,
 
+	.open		= neo_open,
 	.getattr	= neo_getattr,
 	.access		= neo_access,
 	.readlink	= neo_readlink,
 	.readdir	= neo_readdir,
-	.mknod		= neo_mknod,
 	.mkdir		= neo_mkdir,
 	.symlink	= neo_symlink,
 	.unlink		= neo_unlink,

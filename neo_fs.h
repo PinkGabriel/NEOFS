@@ -5,7 +5,7 @@
 #define LOG_BLOCK_SIZE 2
 #define FIRST_FREE_BLOCK 260	/*metadata used 256+4=260 blocks*/
 #define ROOT_ADDR 16512		/*root is node 1,ie,4blocks+128(inode 0 reserved) = 4*4096+128 = 16512*/
-#define DISKIMG /home/snow/bwlab/diskimg
+#define DISKIMG "diskimg"
 
 //#define bgid_to_bgaddr(bg) ()
 
