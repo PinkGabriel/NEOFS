@@ -8,7 +8,8 @@
 
   gcc -Wall neo_fs.c `pkg-config fuse --cflags --libs` -o neo_fs
 
-  xuejieyu coded in 2015.9.23 <sanji@mail.ustc.edu.cn>
+  xuejieyu coded on 2015.9.23 <sanji@mail.ustc.edu.cn>
+  alright=.=..begin coding on 2015.11.3
 */
 
 #define FUSE_USE_VERSION 26
@@ -24,6 +25,7 @@
 
 #include <fuse.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -35,7 +37,15 @@
 #include <sys/xattr.h>
 #endif
 
+/*header*/
 #include <syslog.h>
+#include "neo_fs.h"
+#include "atomic_ops.c"
+
+/*global variable*/
+FILE *fp = NULL;
+struct neo_super_block neo_sb_info;
+struct neo_group_desc *neo_gdt;
 
 static int neo_getattr(const char *path, struct stat *stbuf)
 {
@@ -248,7 +258,7 @@ static int neo_open(const char *path, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int test_opendir (const char *path, struct fuse_file_info *fi)
+static int neo_opendir (const char *path, struct fuse_file_info *fi)
 {
 	syslog(LOG_INFO,"opendir path %s",path);
 	syslog(LOG_INFO,"opendir fh %lu",fi->fh);
@@ -386,7 +396,32 @@ static int neo_removexattr(const char *path, const char *name)
 }
 #endif /* HAVE_SETXATTR */
 
+void *neo_init (struct fuse_conn_info *conn)
+{
+	int groupcnt;
+	if ((fp = fopen("DISKIMG","rb+")) == NULL){
+		printf("image file open failed\n");
+		exit(1);
+	}
+	fseek(fp,1024,SEEK_SET);
+	fread(&neo_sb_info,sizeof(struct neo_super_block),1,fp);
+	groupcnt = neo_sb_info.s_blocks_count / neo_sb_info.s_blocks_per_group;
+	if (neo_sb_info.s_blocks_count % neo_sb_info.s_blocks_per_group)
+		groupcnt ++;
+	fseek(fp,4096,SEEK_SET);
+	neo_gdt = (struct neo_group_desc *)malloc(sizeof(struct neo_group_desc) * groupcnt);
+
+	print_sb(neo_sb_info);
+	print_gdt(neo_gdt,groupcnt);
+
+	return 0;
+}
+
 static struct fuse_operations neo_oper = {
+
+	.init		= neo_init,
+	.open		= neo_open,
+
 	.getattr	= neo_getattr,
 	.access		= neo_access,
 	.readlink	= neo_readlink,
@@ -404,8 +439,7 @@ static struct fuse_operations neo_oper = {
 #ifdef HAVE_UTIMENSAT
 	.utimens	= neo_utimens,
 #endif
-	.open		= neo_open,
-	.opendir	= test_opendir,
+	.opendir	= neo_opendir,
 	.read		= neo_read,
 	.write		= neo_write,
 	.statfs		= neo_statfs,

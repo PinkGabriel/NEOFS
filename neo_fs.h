@@ -1,11 +1,11 @@
-#include<math.h>
-
 #define NEO_BLOCKS 15
 #define MAX_FS_SIZE 17179869184
 #define BLOCKS_PER_GROUP (BLOCK_SIZE * 8)
 #define BLOCK_SIZE (1024<<LOG_BLOCK_SIZE)
 #define LOG_BLOCK_SIZE 2
 #define FIRST_FREE_BLOCK 260	/*metadata used 256+4=260 blocks*/
+#define ROOT_ADDR 16512		/*root is node 1,ie,4blocks+128(inode 0 reserved) = 4*4096+128 = 16512*/
+#define DISKIMG /home/snow/bwlab/diskimg
 
 //#define bgid_to_bgaddr(bg) ()
 
@@ -56,11 +56,24 @@ struct neo_inode
 	__u64  bg_reserved[3];		/*3个保留域配上上一个pad正好16Byte*/
 };
 
-int is_powerof_357(int i)
+struct block_bitmap_cache
 {
-	if (pow(3,(int)(float)(log(i)/log(3))) == i || pow(5,(int)(float)(log(i)/log(5))) == i || 
-		pow(7,(int)(float)(log(i)/log(7))) == i || i == 0)
-		return 1;
-	return 0;
-}
+	int groupnr;
+	unsigned char bbitmap[BLOCK_SIZE];
+};
+
+struct inode_bitmap_cache
+{
+	int groupnr;
+	unsigned char ibitmap[BLOCK_SIZE];
+};
+
+
+
+
+
+
+
+
+
 

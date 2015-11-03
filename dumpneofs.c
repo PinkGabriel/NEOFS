@@ -36,14 +36,77 @@ void print_gdt(struct neo_group_desc *gdt,int groupcnt)
 	}
 }
 
+void print_bmp(unsigned char *bmp)
+{	
+	int i;
+	for (i = 0; i < BLOCK_SIZE; i++){
+		if (i % 64 == 0)
+			printf("\n");
+		printf("%X",bmp[i]);
+		if (bmp[i] == 0)
+			printf(" ");
+	}
+}
+
+void print_inode(struct neo_inode ino)
+{
+	struct tm *local_time = NULL;
+	char str_time[100];
+	printf("root info:\n");
+	printf("uid: %d\n",ino.i_uid);
+	printf("gid: %d\n",ino.i_gid);
+	printf("size: %d\n",ino.i_size);
+	printf("blocks: %d\n",ino.i_blocks);
+
+	local_time = localtime(&ino.i_atime);
+	strftime(str_time, sizeof(str_time), "%Y-%m-%d,%H:%M:%S", local_time);
+	printf("last access time: %s\n",str_time);
+	local_time = localtime(&ino.i_ctime);
+	strftime(str_time, sizeof(str_time), "%Y-%m-%d,%H:%M:%S", local_time);
+	printf("created time: %s\n",str_time);
+	local_time = localtime(&ino.i_mtime);
+	strftime(str_time, sizeof(str_time), "%Y-%m-%d,%H:%M:%S", local_time);
+	printf("last modified time: %s\n",str_time);
+
+	printf("mode: %d\n",ino.i_mode);
+
+}
+
+int is_powerof_357(int i)
+{
+	if (pow(3,(int)(float)(log(i)/log(3))) == i || pow(5,(int)(float)(log(i)/log(5))) == i || 
+		pow(7,(int)(float)(log(i)/log(7))) == i || i == 0)
+		return 1;
+	return 0;
+}
+
 int main(int argc,char *argv[])
 {
 	struct neo_super_block neo_sb_info,tmp;
 	struct neo_group_desc *gd,*debugtmp;
+	struct neo_inode root;
 	FILE *fp = NULL;
 	long length;
 	int i;
+	char *args[3];
+	unsigned char bbitmap[BLOCK_SIZE];
+	unsigned char ibitmap[BLOCK_SIZE];
 	int blkcnt,groupcnt,remainder;
+	if (argc < 2){
+		printf("please type in image file name");
+		return -1;
+	}else if (argc == 2){
+		args[0] = argv[0];
+		args[1] = argv[1];
+		args[2] = NULL;
+	}else if (argc == 3){
+		args[0] = argv[0];
+		args[1] = argv[1];
+		args[2] = argv[2];
+	}else {
+		printf("too many arguments");
+		return -1;
+	}
 	if ((fp = fopen(argv[1],"rb")) == NULL){
 		printf("image file not exist\n");
 		return -1;
@@ -70,33 +133,57 @@ int main(int argc,char *argv[])
 
 	print_sb(neo_sb_info);
 	print_gdt(gd,groupcnt);
-#ifdef DEBUG
-	printf("block count: %d\n",blkcnt);
-	printf("group count: %d\n",groupcnt);
+
 	for (i = 0; i < groupcnt; i++){
+#ifdef DEBUG
 		printf("group %d :\n",i);
+#endif
 		__u64 offset = i * BLOCKS_PER_GROUP * BLOCK_SIZE;
 		fseek(fp,offset,SEEK_SET);
 		if (offset == 0)
 			fseek(fp,1024,SEEK_CUR);//引导块占用1KB
 		if (is_powerof_357(i)){
-			printf("group %d has backup of super block and GDT\n",i);
 			fread(&tmp,sizeof(struct neo_super_block),1,fp);
 			fseek(fp,offset + 4096,SEEK_SET);
 			fread(debugtmp,sizeof(struct neo_group_desc) * groupcnt,1,fp);
+			fseek(fp,offset + 8192,SEEK_SET);
+			fread(bbitmap,sizeof(unsigned char),BLOCK_SIZE,fp);
+			fread(ibitmap,sizeof(unsigned char),BLOCK_SIZE,fp);
+#ifdef DEBUG
+			printf("group %d has backup of super block and GDT\n",i);
 			print_sb(tmp);
 			print_gdt(debugtmp,groupcnt);
-		}else
-			printf("group %d doesn't have backup\n\n",i);
-	}
 #endif
+		}else{
+#ifdef DEBUG
+			printf("group %d doesn't have backup of SB&GDT\n",i);
+#endif
+			fseek(fp,offset,SEEK_SET);
+			fread(bbitmap,sizeof(unsigned char),BLOCK_SIZE,fp);
+			fread(ibitmap,sizeof(unsigned char),BLOCK_SIZE,fp);
+
+		}
+		if (args[2] != NULL && (strcmp(args[2],"bitmap") == 0)){
+			printf("\n\nGroup %d block bitmap:\n\n",i);
+			print_bmp(bbitmap);
+			printf("\n\nGroup %d inode bitmap:\n\n",i);
+			print_bmp(ibitmap);
+			printf("\n\n\n");
+		}
+	}
 
 
 
+	if (args[2] != NULL && (strcmp(args[2],"root") == 0)){
+		fseek(fp,ROOT_ADDR,SEEK_SET);
+		fread(&root,neo_sb_info.s_inode_size,1,fp);
+		print_inode(root);
+	}
 
 
 
 	free(gd);
+	free(debugtmp);
 }
 
 

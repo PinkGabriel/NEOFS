@@ -1,4 +1,5 @@
 #include<stdio.h>
+#include<math.h>
 #include<stdlib.h>
 #include<string.h>
 #include"neo_fs.h"
@@ -9,12 +10,13 @@
 struct neo_super_block neo_sb_info;
 struct neo_group_desc neo_gd_info;
 struct neo_group_desc *gd;
+struct neo_inode root;
 FILE *fp = NULL;
 
 int block_group_format(int bgnum,int groupcnt)
 {
-	char bbitmap[BLOCK_SIZE];	//block bitmap
-	char ibitmap[BLOCK_SIZE];	//inode bitmap
+	unsigned char bbitmap[BLOCK_SIZE];	//block bitmap
+	unsigned char ibitmap[BLOCK_SIZE];	//inode bitmap
 	__u64 offset = bgnum * BLOCKS_PER_GROUP * BLOCK_SIZE;
 	fseek(fp,offset,SEEK_SET);
 	if (offset == 0)
@@ -29,10 +31,25 @@ int block_group_format(int bgnum,int groupcnt)
 		fseek(fp,offset + 4096,SEEK_SET);
 		fwrite(gd,sizeof(struct neo_group_desc),groupcnt,fp);
 		bbitmap[32] = 0xF0;
-	}else
+		if (bgnum == 0)		//直接给root和预留的inode 0 分配空间
+			ibitmap[0] = 0xC0;
+		fseek(fp,offset + 8192,SEEK_SET);
+		fwrite(bbitmap,BLOCK_SIZE,1,fp);
+		fwrite(ibitmap,BLOCK_SIZE,1,fp);
+	}else {
 		bbitmap[32] = 0xC0;
-	fwrite(bbitmap,BLOCK_SIZE,1,fp);
-	fwrite(ibitmap,BLOCK_SIZE,1,fp);
+		fseek(fp,offset,SEEK_SET);
+		fwrite(bbitmap,BLOCK_SIZE,1,fp);
+		fwrite(ibitmap,BLOCK_SIZE,1,fp);
+	}
+}
+
+int is_powerof_357(int i)
+{
+	if (pow(3,(int)(float)(log(i)/log(3))) == i || pow(5,(int)(float)(log(i)/log(5))) == i || 
+		pow(7,(int)(float)(log(i)/log(7))) == i || i == 0)
+		return 1;
+	return 0;
 }
 
 int main(int argc,char *argv[])
@@ -138,11 +155,24 @@ int main(int argc,char *argv[])
 		gd[i].bg_used_dirs_count = 0;
 	}
 
-	for (i = 0; i < n; i++){
+	for (i = 0; i < groupcnt; i++){
 		block_group_format(i,groupcnt);
 	}
-//	add_root();
+	/*add root*/
+	root.i_uid = getuid();
+	root.i_gid = getgid();
+	root.i_size = 0;
+	root.i_blocks = 0;
+	root.i_atime = time(NULL);
+	root.i_ctime = root.i_atime;
+	root.i_mtime = root.i_atime;
+	memset(root.i_block,0,NEO_BLOCKS * sizeof(__u32));
+	root.i_mode = 2;
 
+	fseek(fp,ROOT_ADDR,SEEK_SET);
+	fwrite(&root,sizeof(struct neo_inode),1,fp);
+
+	free(gd);
 }
 
 
