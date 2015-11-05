@@ -39,8 +39,8 @@
 
 /*header*/
 #include <syslog.h>
+#include "atomic_ops.h"
 #include "neo_fs.h"
-#include "atomic_ops.c"
 
 /*global variable*/
 FILE *fp = NULL;
@@ -376,6 +376,8 @@ static int neo_removexattr(const char *path, const char *name)
 }
 #endif /* HAVE_SETXATTR */
 
+/*function implemented by user*/
+
 void *neo_init (struct fuse_conn_info *conn)
 {
 	int groupcnt;
@@ -391,9 +393,10 @@ void *neo_init (struct fuse_conn_info *conn)
 	fseek(fp,4096,SEEK_SET);
 	neo_gdt = (struct neo_group_desc *)malloc(sizeof(struct neo_group_desc) * groupcnt);
 	fread(neo_gdt,sizeof(struct neo_group_desc),groupcnt,fp);
-
-//	print_sb(neo_sb_info);
-//	print_gdt(neo_gdt,groupcnt);
+#ifdef DEBUG
+	print_sb(neo_sb_info);
+	print_gdt(neo_gdt,groupcnt);
+#endif
 
 	return 0;
 }
@@ -418,6 +421,11 @@ static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
 	return 0;
 }
 
+void neo_destroy(void *p)
+{
+	printf("\nthis is the destroy function\n");
+}
+
 static struct fuse_operations neo_oper = {
 
 	.init		= neo_init,
@@ -437,6 +445,7 @@ static struct fuse_operations neo_oper = {
 	.chmod		= neo_chmod,
 	.chown		= neo_chown,
 	.truncate	= neo_truncate,
+	.destroy	= neo_destroy,
 #ifdef HAVE_UTIMENSAT
 	.utimens	= neo_utimens,
 #endif

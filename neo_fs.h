@@ -1,4 +1,8 @@
+#ifndef NEO_FS_H
+#define NEO_FS_H
+
 #define NEO_BLOCKS 15
+#define MAX_FILE_NAME 255
 #define MAX_FS_SIZE 17179869184
 #define BLOCKS_PER_GROUP (BLOCK_SIZE * 8)
 #define BLOCK_SIZE (1024<<LOG_BLOCK_SIZE)
@@ -13,6 +17,9 @@ typedef unsigned long	__u64;
 typedef unsigned int	__u32;
 typedef unsigned short	__u16;
 typedef unsigned char	__u8;
+#define block_nr __u32
+#define inode_nr __u32
+#define bg_nr __u32
 
 struct neo_super_block
 {/*36Byte __u32:unsigned int; __u16:unsigned short; __u8:unsigned char */
@@ -56,6 +63,15 @@ struct neo_inode
 	__u64  bg_reserved[3];		/*3个保留域配上上一个pad正好16Byte*/
 };
 
+struct neo_dir_entry
+{/*目录文件的数据部分的数据结构，变长(8+namelength)Byte*/
+	__u32   inode;			/* Inode number */
+	__u16   rec_len;		/* Directory entry length */
+	__u8    name_len;		/* Name length */
+	__u8    file_type;		/*revision 1的扩展*/
+	char    name[MAX_FILE_NAME];   	/* File name 对齐到4字节*/
+};
+
 struct block_bitmap_cache
 {
 	int groupnr;
@@ -67,7 +83,7 @@ struct inode_bitmap_cache
 	int groupnr;
 	unsigned char ibitmap[BLOCK_SIZE];
 };
-
+#endif
 
 
 
