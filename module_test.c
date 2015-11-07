@@ -34,6 +34,30 @@ void init ()
 #endif
 }
 
+void make_a_dirent_example()
+{
+	struct neo_inode root;
+	struct neo_dir_entry tmp;
+	fseek(fp,ROOT_ADDR,SEEK_SET);
+	fread(&root,sizeof(struct neo_inode),1,fp);
+	root.i_blocks = 1;
+	root.i_block[0] = 261;
+	fwrite(&root,sizeof(struct neo_inode),1,fp);
+	fseek(fp,block_to_addr(root.i_block[0]),SEEK_SET);
+	tmp.inode = 2;
+	tmp.rec_len = 333;
+	tmp.name_len = 0;
+	tmp.file_type = 1;
+	tmp.char[] = "blank111";
+	fwrite(&tmp,16,1,fp);
+	fseek(fp,325,SEEK_CUR);
+	tmp.inode = 2;
+	tmp.rec_len = 333;
+	tmp.name_len = 0;
+	tmp.file_type = 1;
+	tmp.char[] = "blank111";
+	fwrite(&tmp,16,1,fp);
+}
 
 int main()
 {
