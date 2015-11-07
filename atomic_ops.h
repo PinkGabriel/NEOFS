@@ -23,6 +23,10 @@ extern void print_inode(struct neo_inode ino);
 
 extern __u64 inode_to_addr(inode_nr ino);
 
+extern __u64 inline block_to_addr(block_nr blk);
+
+extern int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[]);
+
 extern int is_powerof_357(int i);
 
 #endif
