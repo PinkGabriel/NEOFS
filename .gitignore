@@ -1,4 +1,5 @@
 *.out
+*.o
 *.swp
 neo_fs
 format

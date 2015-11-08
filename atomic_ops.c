@@ -60,6 +60,7 @@ inode_nr search_dentry(inode_nr ino, char *name)
 		n = blkcnt;
 	else
 		n = 12;
+	//printf("blkcnt : %d",blkcnt);
 	for (i = 0; i < n; i++){
 		blkaddr = block_to_addr(dirinode.i_block[i]);
 		if (blk_search_dentry(blkaddr,name,info) == 0)
@@ -86,36 +87,46 @@ int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	unsigned int offset_prev = 0;		//记录块内上一个目录项的偏移；
 	unsigned int offset_cur = 0;		//记录块内当前目录项的偏移；
 	struct neo_dir_entry *cur;		//临时存放读取的目录项
+	char cname[MAX_FILE_NAME] = {'\0'};
 	void *block;				//此处未考虑移植扩展性，void *只在gcc中可以运算，ansi C并不支持
 						//故指针移动通过计算block实现，然后cur跟进
 
 	block = (void *)malloc(BLOCK_SIZE);
 	cur = block;
+	//printf("blkaddr : %ld",blkaddr);
 	fseek(fp,blkaddr,SEEK_SET);
 	fread(block,BLOCK_SIZE,1,fp);		//将此块读入内存
 
-	if(cur->name_len == 0){			//第一个是空块，此时将cur和block指向第一个目录项
+	if(cur->inode == 0){			//第一个是空块，此时将block指向第一个目录项
 		block += cur->rec_len;
-		cur = block;
 	}
 	offset_prev += cur->rec_len;
 	offset_cur += cur->rec_len;
 	do {	//当cur还有下一项
 		//length = (4 - cur->name_len%4) + cur->name_len;
 		//true_len = 8 + length;
-		if (strcmp(cur->name,name) == 0){
+		cur = block;
+		strncpy(cname,cur->name,cur->name_len);
+		if (strcmp(cname,name) == 0){
 			info[0] = cur->inode;
 			info[1] = cur->rec_len;
 			info[2] = offset_prev;
 			info[3] = offset_cur;
 			return 0;
 		}
+ /*
+		printf("prev: %d   ",offset_prev);
+		printf("cur: %d\n\n",offset_cur);
+		printf("cur->rec_len: %d   ",cur->rec_len);
+		printf("cur->name_len: %d   ",cur->name_len);
+		printf("cur->name: %s\n\n",cur->name);
+// */
 		offset_prev = offset_cur;
 		offset_cur += cur->rec_len;
 		block += cur->rec_len;
-		cur = block;
+		memset(cname,0,MAX_FILE_NAME);
 	}
-	while ((offset_cur + cur->rec_len) != 4096 );
+	while ((offset_prev + cur->rec_len) != 4096 );
 	return -1;
 }
 
@@ -163,6 +174,7 @@ void print_inode(struct neo_inode ino)
 	printf("gid: %d\n",ino.i_gid);
 	printf("size: %d\n",ino.i_size);
 	printf("blocks: %d\n",ino.i_blocks);
+	printf("block[0]: %d\n",ino.i_block[0]);
 
 	local_time = localtime(&ino.i_atime);
 	strftime(str_time, sizeof(str_time), "%Y-%m-%d,%H:%M:%S", local_time);
