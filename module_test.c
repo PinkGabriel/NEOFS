@@ -107,7 +107,7 @@ void make_a_dirent_example()
 	fseek(fp,324+base,SEEK_SET);
 
 	tmp.inode = 0;
-	tmp.rec_len = 3776;
+	tmp.rec_len = 3772;
 	tmp.name_len = 8;
 	tmp.file_type = 1;
 	strcpy(tmp.name,"blank999");

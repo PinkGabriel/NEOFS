@@ -43,7 +43,8 @@ inode_nr path_resolve(char *path)
 
 inode_nr search_dentry(inode_nr ino, char *name)
 {
-	unsigned int blkcnt,info[4];
+	unsigned int blkcnt;
+	unsigned int info[4] = {0};
 	__u64 inoaddr;
 	__u64 blkaddr;
 	block_nr *p;
@@ -81,30 +82,103 @@ inode_nr search_dentry(inode_nr ino, char *name)
 	return 0;
 }
 
+int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
+{/*已成功申请到inode，然后在父目录中添加目录项，成功返回0，失败返回-1*/
+	int blkcnt;
+	unsigned int info[4] = {0};
+	struct neo_inode parent;
+	fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
+	fread(&parent,sizeof(struct neo_inode),1,fp);	/*读入父目录inode*/
+
+	struct neo_dir_entry dirent;
+	memset(dirent.name,0,MAX_FILE_NAME);
+	dirent.inode = ino;
+	dirent.name_len = strlen(name);
+	dirent.file_type = (__u8)i_mode;
+	//dirent.rec_len = (4 - dirent.name_len%4) + dirent.name_len + 8;
+	strcpy(dirent.name,name);
+	if (parent.blocks == 0){
+		parent.i_block[0] = get_block(parent_ino);
+		parent.i_blocks = 1;
+		dirent.rec_len = BLOCK_SIZE;		/*第一项同时也是最有一项*/
+		fseek(fp,block_to_addr(parent.i_block[0]),SEEK_SET);
+		fwrite(&dirent,((4 - dirent.name_len%4) + dirent.name_len + 8),1,fp);
+		return 0;
+	}
+	blkcnt = parent.i_blocks;
+	if (blkcnt <= 12)
+		n = blkcnt;
+	else
+		n = 12;
+	//printf("blkcnt : %d",blkcnt);
+	/*首先，必须把所有目录项都检索一遍看是有重名*/
+	for (i = 0; i < n; i++){
+		blkaddr = block_to_addr(parent.i_block[i]);
+		if (blk_search_dentry(blkaddr,name,info) == 0){
+			errno = EEXIST;
+			return -1;
+		}
+	}
+	if (blkcnt > 12){/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+		n = blkcnt - 12;
+		p = (__u32 *)malloc(4 * n);		/*4 = sizeof(__32)*/
+		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
+		fread(p,(4 * n),1,fp);
+		for (i = 0; i < n; i++){
+			blkaddr = block_to_addr(p[i]);
+			if (blk_search_dentry(blkaddr,name,info) == 0){
+				errno = EEXIST;
+				return -1;
+			}
+		}
+	}
+	/*然后，查找空位来加入目录项*/
+	for (i = 0; i < n; i++){
+		blkaddr = block_to_addr(parent.i_block[i]);
+		if (blk_search_empty_dentry(blkaddr,name,info) == 0){	/*找到空闲位置后根据info维护数据结构*/
+			return 0;
+		}
+	
+	}
+	if (blkcnt > 12){/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+		n = blkcnt - 12;
+		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
+		fread(p,(4 * n),1,fp);
+		for (i = 0; i < n; i++){
+			blkaddr = block_to_addr(p[i]);
+			if (blk_search_empty_dentry(blkaddr,name,info) == 0){
+				return 0;
+			}
+		}
+	}
+	/*如果仍未分配到，即现有block都满了，再申请一块*/
+	free(p);
+	return 0;
+
+}
+
 int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 {//在存放目录项的block中查找文件名为name的目录项，成功返回0，失败返回-1。
 
-	unsigned int offset_prev = 0;		//记录块内上一个目录项的偏移；
-	unsigned int offset_cur = 0;		//记录块内当前目录项的偏移；
-	struct neo_dir_entry *cur;		//临时存放读取的目录项
+	unsigned int offset_prev = 0;		/*记录块内上一个目录项的偏移；*/
+	unsigned int offset_cur = 0;		/*记录块内当前目录项的偏移；*/
+	struct neo_dir_entry *cur;		/*临时存放读取的目录项*/
 	char cname[MAX_FILE_NAME] = {'\0'};
-	void *block;				//此处未考虑移植扩展性，void *只在gcc中可以运算，ansi C并不支持
-						//故指针移动通过计算block实现，然后cur跟进
+	void *block;				/*此处未考虑移植扩展性，void *只在gcc中可以运算，ansi C并不支持*/
+						/*故指针移动通过计算block实现，然后cur跟进*/
 
 	block = (void *)malloc(BLOCK_SIZE);
 	cur = block;
 	//printf("blkaddr : %ld",blkaddr);
 	fseek(fp,blkaddr,SEEK_SET);
-	fread(block,BLOCK_SIZE,1,fp);		//将此块读入内存
+	fread(block,BLOCK_SIZE,1,fp);		/*将此块读入内存*/
 
-	if(cur->inode == 0){			//第一个是空块，此时将block指向第一个目录项
+	if(cur->inode == 0){			/*第一个是空块，此时将block指向第一个目录项*/
 		block += cur->rec_len;
 	}
 	offset_prev += cur->rec_len;
 	offset_cur += cur->rec_len;
-	do {	//当cur还有下一项
-		//length = (4 - cur->name_len%4) + cur->name_len;
-		//true_len = 8 + length;
+	do {/*当cur还有下一项*/
 		cur = block;
 		strncpy(cname,cur->name,cur->name_len);
 		if (strcmp(cname,name) == 0){
@@ -130,9 +204,57 @@ int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	return -1;
 }
 
+int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
+{//在存放目录项的block中查找文件名为name的目录项，成功返回0，空间已满返回-1，
 
-block_nr get_block(char *path)
-{
+	unsigned int offset_prev = 0;		/*记录块内上一个目录项的偏移；*/
+	unsigned int offset_cur = 0;		/*记录块内当前目录项的偏移；*/
+	struct neo_dir_entry *cur;		/*临时存放读取的目录项*/
+	unsigned char nlen;
+	char cname[MAX_FILE_NAME] = {'\0'};
+	void *block;				/*此处未考虑移植扩展性，void *只在gcc中可以运算，ansi C并不支持*/
+						/*故指针移动通过计算block实现，然后cur跟进*/
+	nlen = strlen(name);
+
+	block = (void *)malloc(BLOCK_SIZE);
+	cur = block;
+	//printf("blkaddr : %ld",blkaddr);
+	fseek(fp,blkaddr,SEEK_SET);
+	fread(block,BLOCK_SIZE,1,fp);		/*将此块读入内存*/
+
+	if(cur->inode == 0){			/*第一个是空块，此时将block指向第一个目录项*/
+		block += cur->rec_len;
+	}
+	offset_prev += cur->rec_len;
+	offset_cur += cur->rec_len;
+	do {/*当cur还有下一项*/
+		cur = block;
+		strncpy(cname,cur->name,cur->name_len);
+		if (strcmp(cname,name) == 0){
+			info[0] = cur->inode;
+			info[1] = cur->rec_len;
+			info[2] = offset_prev;
+			info[3] = offset_cur;
+			return 0;
+		}
+ /*
+		printf("prev: %d   ",offset_prev);
+		printf("cur: %d\n\n",offset_cur);
+		printf("cur->rec_len: %d   ",cur->rec_len);
+		printf("cur->name_len: %d   ",cur->name_len);
+		printf("cur->name: %s\n\n",cur->name);
+// */
+		offset_prev = offset_cur;
+		offset_cur += cur->rec_len;
+		block += cur->rec_len;
+		memset(cname,0,MAX_FILE_NAME);
+	}
+	while ((offset_prev + cur->rec_len) != 4096 );
+	return -1;
+}
+
+block_nr get_block(inode_nr ino)
+{/*inode只是申请策略所需，尽量申请inode所在组的块*/
 	return 0;
 }
 
