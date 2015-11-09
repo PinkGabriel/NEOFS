@@ -210,11 +210,11 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	unsigned int offset_prev = 0;		/*记录块内上一个目录项的偏移；*/
 	unsigned int offset_cur = 0;		/*记录块内当前目录项的偏移；*/
 	struct neo_dir_entry *cur;		/*临时存放读取的目录项*/
-	unsigned char nlen;
+	unsigned char need_len;
 	char cname[MAX_FILE_NAME] = {'\0'};
 	void *block;				/*此处未考虑移植扩展性，void *只在gcc中可以运算，ansi C并不支持*/
 						/*故指针移动通过计算block实现，然后cur跟进*/
-	nlen = strlen(name);
+	need_len = strlen(name) + 16;
 
 	block = (void *)malloc(BLOCK_SIZE);
 	cur = block;
@@ -223,6 +223,13 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	fread(block,BLOCK_SIZE,1,fp);		/*将此块读入内存*/
 
 	if(cur->inode == 0){			/*第一个是空块，此时将block指向第一个目录项*/
+		if (cur->rec_len >= need_len){
+			info[0] = cur->inode;
+			info[1] = cur->rec_len;
+			info[2] = offset_prev;
+			info[3] = offset_cur;
+			return 0;
+		}
 		block += cur->rec_len;
 	}
 	offset_prev += cur->rec_len;
