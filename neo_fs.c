@@ -46,6 +46,8 @@
 FILE *fp = NULL;
 struct neo_super_block neo_sb_info;
 struct neo_group_desc *neo_gdt;
+struct block_bitmap_cache bbcache;
+struct inode_bitmap_cache ibcache;
 
 static int neo_getattr(const char *path, struct stat *stbuf)
 {
@@ -387,12 +389,15 @@ void *neo_init (struct fuse_conn_info *conn)
 	}
 	fseek(fp,1024,SEEK_SET);
 	fread(&neo_sb_info,sizeof(struct neo_super_block),1,fp);
-	groupcnt = neo_sb_info.s_blocks_count / neo_sb_info.s_blocks_per_group;
-	if (neo_sb_info.s_blocks_count % neo_sb_info.s_blocks_per_group)
-		groupcnt ++;
+	groupcnt = neo_sb_info.s_groups_count;
 	fseek(fp,4096,SEEK_SET);
 	neo_gdt = (struct neo_group_desc *)malloc(sizeof(struct neo_group_desc) * groupcnt);
 	fread(neo_gdt,sizeof(struct neo_group_desc),groupcnt,fp);
+
+	bbcache.groupnr = -1;
+	memset(bbcache.bbitmap,0,BLOCK_SIZE);
+	ibcache.groupnr = -1;
+	memset(ibcache.ibitmap,0,BLOCK_SIZE);
 #ifdef DEBUG
 	print_sb(neo_sb_info);
 	print_gdt(neo_gdt,groupcnt);
@@ -423,6 +428,8 @@ static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
 
 void neo_destroy(void *p)
 {
+	/*write sb and gdt to main copy and backups*/
+	/*write bbtimap and ibitmap to the disk*/
 	printf("\nthis is the destroy function\n");
 }
 

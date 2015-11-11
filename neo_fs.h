@@ -21,10 +21,13 @@ typedef unsigned char	__u8;
 #define inode_nr __u32
 #define bg_nr __u32
 
+#define TRUE_LEN(x) (((x%4)?(4 - x%4 + x):(x)) + 8)
+
 struct neo_super_block
-{/*36Byte __u32:unsigned int; __u16:unsigned short; __u8:unsigned char */
+{/*38Byte __u32:unsigned int; __u16:unsigned short; __u8:unsigned char */
 	__u32  s_inodes_count;		/* Inodes count */
 	__u32  s_blocks_count;		/* Blocks count */
+	__u32  s_groups_count;		/* Groups count */
 	__u32  s_free_inodes_count;	/* Free inodes count */
 	__u32  s_free_blocks_count;	/* Free blocks count */
 	__u32  s_log_block_size;	/* Block size */

@@ -12,6 +12,8 @@
 FILE *fp = NULL;
 struct neo_super_block neo_sb_info;
 struct neo_group_desc *neo_gdt;
+struct block_bitmap_cache bbcache;
+struct inode_bitmap_cache ibcache;
 
 void init ()
 {
@@ -22,12 +24,16 @@ void init ()
 	}
 	fseek(fp,1024,SEEK_SET);
 	fread(&neo_sb_info,sizeof(struct neo_super_block),1,fp);
-	groupcnt = neo_sb_info.s_blocks_count / neo_sb_info.s_blocks_per_group;
-	if (neo_sb_info.s_blocks_count % neo_sb_info.s_blocks_per_group)
-		groupcnt ++;
+	groupcnt = neo_sb_info.s_groups_count;
 	fseek(fp,4096,SEEK_SET);
 	neo_gdt = (struct neo_group_desc *)malloc(sizeof(struct neo_group_desc) * groupcnt);
 	fread(neo_gdt,sizeof(struct neo_group_desc),groupcnt,fp);
+
+	bbcache.groupnr = -1;
+	memset(bbcache.bbitmap,0,BLOCK_SIZE);
+	ibcache.groupnr = -1;
+	memset(ibcache.ibitmap,0,BLOCK_SIZE);
+
 #ifdef DEBUG
 	print_sb(neo_sb_info);
 	print_gdt(neo_gdt,groupcnt);
@@ -121,14 +127,22 @@ int main()
 	init();
 	//printf("/abc/asds/asdfds/asdfsd/ghg\n\n");
 	//path_resolve("/abc/asds/asdfds/asdfsd/ghg");
-	//inode_to_addr(1);
-	
-	make_a_dirent_example();
+	inode_to_addr(1);
 	
 	//find = search_dentry(1,"worldofwarcraft");
 	find = search_dentry(1,"finalfantasy7adventchildren");
 	printf("find inode : %d\n",find);
+	
+	add_dentry(1,999,"FF33",1);
+	add_dentry(1,399,"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",1);
+	add_dentry(1,33333,"FF33333",1);
+	find = search_dentry(1,"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo");
+	printf("find inode : %d\n",find);
+	find = search_dentry(1,"FF33333");
+	printf("find inode : %d\n",find);
 
+	write_sb_gdt_main();
+	write_bitmap();
 	return 0;
 }
 
