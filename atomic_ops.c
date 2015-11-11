@@ -1,0 +1,558 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "atomic_ops.h"
+#include "neo_fs.h"
+#include <errno.h>
+#include <time.h>
+#include <math.h>
+
+inode_nr path_resolve(char *path)
+{
+	inode_nr parent,res;
+	int length;
+	char *pos;
+	char tmp[MAX_FILE_NAME];
+	if (strcmp(path,"/") == 0)//root's inode is 1. 0 is reserved for judge
+		return 1;
+	path ++;
+	parent = 1;
+	while ((pos = strchr(path,'/')) != NULL)
+	{
+		if ((length = (pos - path)) > 255){
+			errno = ENAMETOOLONG;
+			return 0;
+		}
+		strncpy(tmp,path,pos - path);
+		parent = search_dentry(parent,tmp);
+		//printf("%s\n",tmp);
+		if (parent == 0){
+			errno = ENOENT;
+			return 0;
+		}
+		path = ++pos;
+	}
+	//printf("%s\n",path);
+	if ((res = search_dentry(parent,path)) != 0)
+		return res;
+	else{
+		errno = ENOENT;
+		return 0;
+	}
+}
+
+inode_nr search_dentry(inode_nr ino, char *name)
+{
+	unsigned int blkcnt;
+	unsigned int info[4] = {0};
+	__u64 inoaddr;
+	__u64 blkaddr;
+	block_nr *p = NULL;
+	struct neo_inode dirinode;
+	int i,n;
+	inoaddr = inode_to_addr(ino);
+	fseek(fp,inoaddr,SEEK_SET);
+	fread(&dirinode,neo_sb_info.s_inode_size,1,fp);
+	//print_inode(dirinode);
+	if (dirinode.i_blocks == 0)
+		return 0;
+	blkcnt = dirinode.i_blocks;
+	if (blkcnt <= 12)
+		n = blkcnt;
+	else
+		n = 12;
+	//printf("blkcnt : %d",blkcnt);
+	for (i = 0; i < n; i++){
+		blkaddr = block_to_addr(dirinode.i_block[i]);
+		if (blk_search_dentry(blkaddr,name,info) == 0)
+			return info[0];
+	}
+	if (blkcnt > 12){//dir file's max blocks count is 13,block[12] for indirect addr.
+		n = blkcnt - 12;
+		p = (__u32 *)malloc(4 * n);	//4 = sizeof(__32)
+		fseek(fp,block_to_addr(dirinode.i_block[12]),SEEK_SET);
+		fread(p,(4 * n),1,fp);
+		for (i = 0; i < n; i++){
+			blkaddr = block_to_addr(p[i]);
+			if (blk_search_dentry(blkaddr,name,info) == 0){
+				free(p);
+				return info[0];
+			}
+		}
+	}
+	return 0;
+}
+
+int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
+{/*已成功申请到inode，然后在父目录中添加目录项，成功返回0，失败返回-1*/
+	int blkcnt;
+	int i,n;
+	__u32 *p = NULL;
+	__u64 blkaddr;
+	unsigned int info[4] = {0};
+	unsigned int tmp;
+	struct neo_inode parent;
+	struct neo_dir_entry dirent;
+
+	fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
+	fread(&parent,sizeof(struct neo_inode),1,fp);	/*读入父目录inode*/
+
+	
+	blkcnt = parent.i_blocks;
+	if (blkcnt <= 12)
+		n = blkcnt;
+	else
+		n = 12;
+	//printf("blkcnt : %d",blkcnt);
+	/*首先，必须把所有目录项都检索一遍看是有重名*/
+	for (i = 0; i < n; i++){
+		blkaddr = block_to_addr(parent.i_block[i]);
+		if (blk_search_dentry(blkaddr,name,info) == 0){
+			//printf("same name\n");
+			errno = EEXIST;
+			return -1;
+		}
+	}
+	if (blkcnt > 12){/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+		n = blkcnt - 12;
+		p = (__u32 *)malloc(4 * n);		/*4 = sizeof(__32)*/
+		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
+		fread(p,(4 * n),1,fp);
+		for (i = 0; i < n; i++){
+			blkaddr = block_to_addr(p[i]);
+			if (blk_search_dentry(blkaddr,name,info) == 0){
+				//printf("same name\n");
+				errno = EEXIST;
+				return -1;
+			}
+		}
+	}
+	/*然后，查找空位来加入目录项*/
+
+	if (blkcnt <= 12)
+		n = blkcnt;
+	else
+		n = 12;
+	memset(dirent.name,0,MAX_FILE_NAME);
+	dirent.inode = ino;
+	dirent.name_len = strlen(name);
+	strcpy(dirent.name,name);
+	dirent.file_type = (__u8)i_mode;
+	//dirent.rec_len = (4 - dirent.name_len%4) + dirent.name_len + 8;
+	
+	if (parent.i_blocks == 0){
+		parent.i_block[0] = get_block(parent_ino);
+		parent.i_blocks += 1;
+		dirent.rec_len = BLOCK_SIZE;				/*第一项同时也是最后一项*/
+		fseek(fp,block_to_addr(parent.i_block[0]),SEEK_SET);
+		//fwrite(&dirent,((dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8),1,fp);
+		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
+
+		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
+		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
+
+		return 0;
+	}
+
+	for (i = 0; i < n; i++){
+		blkaddr = block_to_addr(parent.i_block[i]);
+		if (blk_search_empty_dentry(blkaddr,name,info) == 0){	/*找到空闲位置后根据info维护数据结构*/
+			write_dentry(blkaddr,info,dirent);
+
+			fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
+			fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
+
+			return 0;
+		}
+	
+	}
+	if (blkcnt > 12){/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+		n = blkcnt - 12;
+		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
+		fread(p,(4 * n),1,fp);
+		for (i = 0; i < n; i++){
+			blkaddr = block_to_addr(p[i]);
+			if (blk_search_empty_dentry(blkaddr,name,info) == 0){
+				write_dentry(blkaddr,info,dirent);
+
+				fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
+				fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
+
+				return 0;
+			}
+		}
+	}
+	/*如果仍未分配到，即现有block都满了，再申请一块*/
+	if (blkcnt < 12){
+		parent.i_block[blkcnt] = get_block(parent_ino);
+		parent.i_blocks += 1;
+		dirent.rec_len = BLOCK_SIZE;		/*第一项同时也是最有一项*/
+		fseek(fp,block_to_addr(parent.i_block[blkcnt]),SEEK_SET);
+		//fwrite(&dirent,((dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8),1,fp);
+		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
+
+		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
+		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
+
+		return 0;
+	}else if (blkcnt = 12){
+		parent.i_block[12] = get_block(parent_ino);
+		tmp = get_block(parent_ino);
+		parent.i_blocks += 1;
+		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
+		fwrite(&tmp,4,1,fp);
+		dirent.rec_len = BLOCK_SIZE;		/*第一项同时也是最有一项*/
+		fseek(fp,block_to_addr(tmp),SEEK_SET);
+		//fwrite(&dirent,((dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8),1,fp);
+		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
+
+		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
+		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
+
+		return 0;
+	}else if (blkcnt < 1036){			/*1036 = 4096/4 + 12，即目录文件的最大block数量*/
+		tmp = get_block(parent_ino);
+		parent.i_blocks += 1;
+		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
+		fseek(fp,(blkcnt - 12) * 4,SEEK_CUR);
+		fwrite(&tmp,4,1,fp);
+		dirent.rec_len = BLOCK_SIZE;		/*第一项同时也是最有一项*/
+		fseek(fp,block_to_addr(tmp),SEEK_SET);
+		//fwrite(&dirent,((dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8),1,fp);
+		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
+
+		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
+		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
+
+		return 0;
+	}else{
+		errno = ENOSPC;
+		return -1;
+	}
+
+	free(p);
+	return 0;
+
+}
+
+int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
+{//在存放目录项的block中查找文件名为name的目录项，成功返回0，失败返回-1。
+
+	unsigned int offset_prev = 0;		/*记录块内上一个目录项的偏移；*/
+	unsigned int offset_cur = 0;		/*记录块内当前目录项的偏移；*/
+	struct neo_dir_entry *cur;		/*临时存放读取的目录项*/
+	char cname[MAX_FILE_NAME] = {'\0'};
+	void *block;				/*此处未考虑移植扩展性，void *只在gcc中可以运算，ansi C并不支持*/
+						/*故指针移动通过计算block实现，然后cur跟进*/
+
+	block = (void *)malloc(BLOCK_SIZE);
+	cur = block;
+	//printf("blkaddr : %ld",blkaddr);
+	fseek(fp,blkaddr,SEEK_SET);
+	fread(block,BLOCK_SIZE,1,fp);		/*将此块读入内存*/
+
+	if(cur->inode == 0){			/*第一个是空块，此时将block指向第一个目录项*/
+		block += cur->rec_len;
+		offset_prev += cur->rec_len;
+		offset_cur += cur->rec_len;
+	}
+	do {/*当cur还有下一项*/
+		cur = block;
+		strncpy(cname,cur->name,cur->name_len);
+		if (strcmp(cname,name) == 0){
+			info[0] = cur->inode;
+			info[1] = cur->rec_len;
+			info[2] = offset_prev;
+			info[3] = offset_cur;
+			return 0;
+		}
+ /*
+		printf("prev: %d   ",offset_prev);
+		printf("cur: %d\n\n",offset_cur);
+		printf("cur->rec_len: %d   ",cur->rec_len);
+		printf("cur->name_len: %d   ",cur->name_len);
+		printf("cur->name: %s\n\n",cur->name);
+// */
+		offset_prev = offset_cur;
+		offset_cur += cur->rec_len;
+		block += cur->rec_len;
+		memset(cname,0,MAX_FILE_NAME);
+	}
+	while ((offset_prev + cur->rec_len) != 4096 );
+	return -1;
+}
+
+int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
+{/*在存放目录项的block中查找文件名为name的目录项，成功返回0，空间已满返回-1，*/
+
+	unsigned int offset_prev = 0;		/*记录块内上一个目录项的偏移；*/
+	unsigned int offset_cur = 0;		/*记录块内当前目录项的偏移；*/
+	unsigned int order = 0;		
+	struct neo_dir_entry *cur;		/*临时存放读取的目录项*/
+	struct neo_dir_entry *blank;		/*临时存放目录项下一个空闲块*/
+	unsigned char need_len;
+	unsigned short true_len;
+	void *block;				/*此处未考虑移植扩展性，void *只在gcc中可以运算，ansi C并不支持*/
+						/*故指针移动通过计算block实现，然后cur跟进*/
+	//need_len = ((strlen(name)%4)?((4 - strlen(name)%4) + strlen(name)):(strlen(name))) + 16;
+	need_len = TRUE_LEN(strlen(name)) + 8;
+
+	block = (void *)malloc(BLOCK_SIZE);
+	cur = block;
+	//printf("blkaddr : %ld",blkaddr);
+	fseek(fp,blkaddr,SEEK_SET);
+	fread(block,BLOCK_SIZE,1,fp);		/*将此块读入内存*/
+
+	if(cur->inode == 0){			/*第一个是空块，此时将block指向第一个目录项*/
+		if (cur->rec_len >= need_len){
+			info[0] = order;
+			info[1] = cur->rec_len;
+			info[2] = offset_prev;
+			info[3] = offset_cur;
+			return 0;
+		}else {
+			offset_prev += cur->rec_len;
+			offset_cur += cur->rec_len;
+		}
+	}
+	do {/*当cur还有下一项*/
+		order ++;
+		cur = block;
+		//true_len = ((cur->name_len%4)?((4 - cur->name_len%4) + cur->name_len):(cur->name_len)) + 8;
+		true_len = TRUE_LEN(cur->name_len);
+		if ((cur->rec_len - true_len) > need_len){
+			info[0] = order;
+			info[1] = cur->rec_len;
+			info[2] = offset_prev;
+			info[3] = offset_cur;
+			return 0;
+		}
+ /*
+		printf("prev: %d   ",offset_prev);
+		printf("cur: %d\n\n",offset_cur);
+		printf("cur->rec_len: %d   ",cur->rec_len);
+		printf("cur->name_len: %d   ",cur->name_len);
+// */
+		offset_prev = offset_cur;
+		offset_cur += cur->rec_len;
+		block += cur->rec_len;
+	}
+	while ((offset_prev + cur->rec_len) != 4096 );
+	return -1;
+}
+
+void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent)
+{
+	unsigned short true_len;
+	unsigned short mid;
+	struct neo_dir_entry blank;
+	struct neo_dir_entry tmp;
+	blank.inode = 0;
+	blank.name_len = 0;
+	blank.file_type = 0;
+
+ /*
+	printf("info[0] is %d\n",info[0]);
+	printf("info[1] is %d\n",info[1]);
+	printf("info[2] is %d\n",info[2]);
+	printf("info[3] is %d\n",info[3]);
+// */
+	//true_len = (dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8;
+	true_len = TRUE_LEN(dirent.name_len);
+	if (info[0] == 0){				/*空闲区域在此块的开头*/
+		fseek(fp,blkaddr,SEEK_SET);
+		dirent.rec_len = info[1];
+		fwrite(&dirent,true_len,1,fp);
+		
+		blank.rec_len = info[1] - true_len;
+		fwrite(&blank,8,1,fp);
+	}else if ((info[1] + info[3]) == 4096){		/*空闲区域在此块的末尾*/
+		fseek(fp,blkaddr + info[3],SEEK_SET);
+		fread(&tmp,8,1,fp);
+		//tmp.rec_len = (tmp.name_len%4?(4 - tmp.name_len%4 + tmp.name_len):(tmp.name_len)) + 8;
+		tmp.rec_len = TRUE_LEN(tmp.name_len);
+		fseek(fp,-8,SEEK_CUR);
+		fwrite(&tmp,8,1,fp);
+
+		fseek(fp,blkaddr + info[3] + tmp.rec_len,SEEK_SET);
+		dirent.rec_len = 4096 - info[3] - tmp.rec_len;
+		fwrite(&dirent,true_len,1,fp);
+
+		blank.rec_len = dirent.rec_len - true_len;
+		fwrite(&blank,8,1,fp);
+	}else {						/*空闲区域在此块的中间*/
+		fseek(fp,blkaddr + info[3],SEEK_SET);
+		fread(&tmp,8,1,fp);
+		mid = tmp.rec_len;
+		//tmp.rec_len = (tmp.name_len%4?(4 - tmp.name_len%4 + tmp.name_len):(tmp.name_len)) + 8;
+		tmp.rec_len = TRUE_LEN(tmp.name_len);
+		fseek(fp,-8,SEEK_CUR);
+		fwrite(&tmp,8,1,fp);
+
+		fseek(fp,blkaddr + info[3] + tmp.rec_len,SEEK_SET);
+		dirent.rec_len = mid - tmp.rec_len;
+		fwrite(&dirent,true_len,1,fp);
+
+		blank.rec_len = dirent.rec_len - true_len;
+		fwrite(&blank,8,1,fp);
+	}
+}
+
+block_nr get_block(inode_nr ino)
+{/*inode只是申请策略所需，尽量申请inode所在组的块。只更新了内存中的sb和gdt，未写入disk*/
+	int i,j;
+	unsigned char c;
+	int groupcnt = neo_sb_info.s_groups_count;
+	int bgnr = ino / 8192;				/*8192即每组inode个数*/
+	for (i = 0; i < groupcnt; i++){
+		if (neo_gdt[bgnr].bg_free_blocks_count > 0){
+			neo_sb_info.s_free_blocks_count --;
+			neo_gdt[bgnr].bg_free_blocks_count --;
+			break;
+		}
+		bgnr = (bgnr + 1)%groupcnt;
+	}
+	if (bbcache.groupnr != bgnr){
+		if (bbcache.groupnr != -1){
+			fseek(fp,block_to_addr(neo_gdt[bbcache.groupnr].bg_block_bitmap),SEEK_SET);
+			fwrite(bbcache.bbitmap,1,BLOCK_SIZE,fp);
+		}
+		fseek(fp,block_to_addr(neo_gdt[bgnr].bg_block_bitmap),SEEK_SET);
+		//printf("addr = %d\n",block_to_addr(neo_gdt[bgnr].bg_block_bitmap));
+		fread(bbcache.bbitmap,1,BLOCK_SIZE,fp);
+		bbcache.groupnr = bgnr;
+	}
+	for (i = 32; i < BLOCK_SIZE; i++)		/*32 is the first 256 + 2or4 used blocks in the bitmap*/
+	{
+		//printf("bbitmap[%d] = %x\n",i,bbcache.bbitmap[i]);
+		if (bbcache.bbitmap[i] != 0xFF){	/*find empty block*/
+			for (j = 0, c = 0x80; j < 8; j++){
+				//printf("c = %x\n",c);
+				if ((bbcache.bbitmap[i]&c) == 0){
+					bbcache.bbitmap[i] += c;
+					//printf("i = %d\n",i);
+					//printf("j = %d\n",j);
+					//printf("c = %x\n",c);
+					return (BLOCKS_PER_GROUP * bgnr + 8 * i + j);
+				}
+				c = c >> 1;
+			}
+		}
+	}
+}
+
+void write_sb_gdt_main()
+{
+	fseek(fp,1024,SEEK_SET);
+	fwrite(&neo_sb_info,sizeof(struct neo_super_block),1,fp);
+	fseek(fp,4096,SEEK_SET);
+	fwrite(neo_gdt,sizeof(struct neo_group_desc),neo_sb_info.s_groups_count,fp);
+}
+
+void write_sb_gdt_backups()
+{
+}
+
+void write_bitmap()
+{
+	if (bbcache.groupnr != -1){
+		fseek(fp,block_to_addr(neo_gdt[bbcache.groupnr].bg_block_bitmap),SEEK_SET);
+		fwrite(bbcache.bbitmap,1,BLOCK_SIZE,fp);
+	}
+	if (ibcache.groupnr != -1){
+		fseek(fp,block_to_addr(neo_gdt[ibcache.groupnr].bg_inode_bitmap),SEEK_SET);
+		fwrite(ibcache.ibitmap,1,BLOCK_SIZE,fp);
+	}
+}
+
+void print_sb(struct neo_super_block neo_sb_info)
+{
+	printf("super block:\n");
+	printf("sb inodes count: %d\n",neo_sb_info.s_inodes_count);
+	printf("sb blocks count: %d\n",neo_sb_info.s_blocks_count);
+	printf("sb groups count: %d\n",neo_sb_info.s_groups_count);
+	printf("sb free inodes count: %d\n",neo_sb_info.s_inodes_count);
+	printf("sb free blocks count: %d\n",neo_sb_info.s_blocks_count);
+	printf("sb log block size: %d\n",neo_sb_info.s_log_block_size);
+	printf("sb blocks/group: %d\n",neo_sb_info.s_blocks_per_group);
+	printf("sb inodes/group: %d\n",neo_sb_info.s_inodes_per_group);
+	printf("sb magic#: %d\n",neo_sb_info.s_magic);
+	printf("sb inode size: %d\n\n",neo_sb_info.s_inode_size);
+}
+
+void print_gdt(struct neo_group_desc *gdt,int groupcnt)
+{
+	int i;
+	printf("GDT:\n");
+	for (i = 0; i < groupcnt; i++){
+		printf("group %d :\n",i);
+		printf("block bitmap: %d\n",gdt[i].bg_block_bitmap);
+		printf("inode bitmap: %d\n",gdt[i].bg_inode_bitmap);
+		printf("inode table: %d\n",gdt[i].bg_inode_table);
+		printf("free blocks count: %d\n",gdt[i].bg_free_blocks_count);
+		printf("free inodes count: %d\n",gdt[i].bg_free_inodes_count);
+		printf("used dirs count: %d\n\n",gdt[i].bg_used_dirs_count);
+	}
+}
+
+void print_inode(struct neo_inode ino)
+{
+	struct tm *local_time = NULL;
+	char str_time[100];
+	printf("inode info:\n");
+	printf("uid: %d\n",ino.i_uid);
+	printf("gid: %d\n",ino.i_gid);
+	printf("size: %d\n",ino.i_size);
+	printf("blocks: %d\n",ino.i_blocks);
+	printf("block[0]: %d\n",ino.i_block[0]);
+
+	local_time = localtime(&ino.i_atime);
+	strftime(str_time, sizeof(str_time), "%Y-%m-%d,%H:%M:%S", local_time);
+	printf("last access time:   ");
+	printf(" %-19s\n",str_time);
+	local_time = localtime(&ino.i_ctime);
+	strftime(str_time, sizeof(str_time), "%Y-%m-%d,%H:%M:%S", local_time);
+	printf("created time:       ");
+	printf(" %-19s\n",str_time);
+	local_time = localtime(&ino.i_mtime);
+	strftime(str_time, sizeof(str_time), "%Y-%m-%d,%H:%M:%S", local_time);
+	printf("last modified time: ");
+	printf(" %-19s\n",str_time);
+
+	printf("mode: %d\n",ino.i_mode);
+}
+
+__u64 inode_to_addr(inode_nr ino)
+{
+	int groupnr,r;
+	int offset = BLOCK_SIZE * 2;			//block和inode的位图
+	groupnr = ino / neo_sb_info.s_inodes_per_group;
+	r = ino % neo_sb_info.s_inodes_per_group;
+	if(is_powerof_357(groupnr))
+		offset += BLOCK_SIZE * 2;		//SB&GDT 2Blocks
+	offset += (BLOCK_SIZE * BLOCKS_PER_GROUP * groupnr + r * neo_sb_info.s_inode_size);
+	//printf("inode %d addr is %d\n\n",ino,offset);
+	return offset;
+}
+
+__u64 inline block_to_addr(block_nr blk)
+{
+	return (blk * 4096);
+}
+
+int is_powerof_357(int i)
+{
+	if (pow(3,(int)(float)(log(i)/log(3))) == i || pow(5,(int)(float)(log(i)/log(5))) == i || 
+		pow(7,(int)(float)(log(i)/log(7))) == i || i == 0)
+		return 1;
+	return 0;
+}
+
+
+
+
+
+
+
+
+
