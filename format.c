@@ -155,6 +155,7 @@ int main(int argc,char *argv[])
 	}
 	neo_sb_info.s_free_blocks_count -= sb_gdt_backups * 2;			/*2 is sb and gdt backups*/
 	gd[0].bg_free_inodes_count -= 2;
+	gd[0].bg_used_dirs_count = 1;						/*root is a dir*/
 
 #ifdef DEBUG
 	printf("sb inodes count: %d\n",neo_sb_info.s_inodes_count);

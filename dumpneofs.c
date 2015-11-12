@@ -13,8 +13,8 @@ void print_sb(struct neo_super_block neo_sb_info)
 	printf("sb inodes count: %d\n",neo_sb_info.s_inodes_count);
 	printf("sb blocks count: %d\n",neo_sb_info.s_blocks_count);
 	printf("sb groups count: %d\n",neo_sb_info.s_groups_count);
-	printf("sb free inodes count: %d\n",neo_sb_info.s_inodes_count);
-	printf("sb free blocks count: %d\n",neo_sb_info.s_blocks_count);
+	printf("sb free inodes count: %d\n",neo_sb_info.s_free_inodes_count);
+	printf("sb free blocks count: %d\n",neo_sb_info.s_free_blocks_count);
 	printf("sb log block size: %d\n",neo_sb_info.s_log_block_size);
 	printf("sb blocks/group: %d\n",neo_sb_info.s_blocks_per_group);
 	printf("sb inodes/group: %d\n",neo_sb_info.s_inodes_per_group);

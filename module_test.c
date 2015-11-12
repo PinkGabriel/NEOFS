@@ -127,21 +127,21 @@ int main()
 	init();
 	//printf("/abc/asds/asdfds/asdfsd/ghg\n\n");
 	//path_resolve("/abc/asds/asdfds/asdfsd/ghg");
-	inode_to_addr(1);
 	
 	//find = search_dentry(1,"worldofwarcraft");
 	find = search_dentry(1,"finalfantasy7adventchildren");
 	printf("find inode : %d\n",find);
 	
-	add_dentry(1,999,"FF33",1);
-	add_dentry(1,399,"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",1);
-	add_dentry(1,33333,"FF33333",1);
+	add_dentry(1,get_inode(1,1),"FF33",1);
+	add_dentry(1,get_inode(1,2),"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",1);
+	add_dentry(1,get_inode(1,1),"FF33333",1);
 	find = search_dentry(1,"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo");
 	printf("find inode : %d\n",find);
 	find = search_dentry(1,"FF33333");
 	printf("find inode : %d\n",find);
+	
+	//free_inode(8192,2);
 
-	write_sb_gdt_main();
 	write_bitmap();
 	return 0;
 }

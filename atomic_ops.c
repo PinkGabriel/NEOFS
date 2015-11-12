@@ -235,6 +235,13 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 
 }
 
+int delete_dentry(inode_nr parent_ino,inode_nr ino)
+{
+	/*释放被删除节点的数据块，再删除inode*/
+	/*删除目录项*/
+	return 0;
+}
+
 int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 {//在存放目录项的block中查找文件名为name的目录项，成功返回0，失败返回-1。
 
@@ -398,16 +405,94 @@ void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent)
 	}
 }
 
+inode_nr get_inode(inode_nr ino,__u16 i_mode)
+{/*从父目录ino下分配一个inode，同时写好sb和gdt，写好位图*/
+	int i,j;
+	unsigned char c;
+	unsigned int aver_free_inodes,aver_free_blocks;
+	int groupcnt = neo_sb_info.s_groups_count;
+	int bgnr = ino / 8192;				/*8192即每组inode个数*/
+	int prev,tag = 0;
+	if (i_mode == 1){				/*给普通文件申请inode*/
+		for (i = 0; i < groupcnt; i++){
+			if (neo_gdt[bgnr].bg_free_inodes_count > 0){
+				neo_sb_info.s_free_inodes_count --;
+				neo_gdt[bgnr].bg_free_inodes_count --;
+				write_sb_gdt_main(bgnr);
+				break;
+			}
+			bgnr = (bgnr + 1)%groupcnt;
+		}
+	}else {						/*给目录文件分配inode*/
+		aver_free_inodes = neo_sb_info.s_free_inodes_count / neo_sb_info.s_groups_count;
+		aver_free_blocks = neo_sb_info.s_free_blocks_count / neo_sb_info.s_groups_count;
+		for (i = 0; i < groupcnt; i++){
+			prev = (bgnr - 1 + groupcnt)%groupcnt;
+			if ((neo_gdt[bgnr].bg_free_inodes_count > 0) && \
+				(neo_gdt[bgnr].bg_used_dirs_count < neo_gdt[prev].bg_used_dirs_count) && \
+				(neo_gdt[bgnr].bg_free_inodes_count > aver_free_inodes) && \
+				(neo_gdt[bgnr].bg_free_blocks_count > aver_free_blocks)){
+				neo_sb_info.s_free_inodes_count --;
+				neo_gdt[bgnr].bg_free_inodes_count --;
+				neo_gdt[bgnr].bg_used_dirs_count ++;
+				write_sb_gdt_main(bgnr);
+				tag = 1;
+				break;
+			}
+			bgnr = (bgnr + 1)%groupcnt;
+		}/*未找到最优块组，则线性从当前组查找*/
+		if (tag = 0){
+			for (i = 0; i < groupcnt; i++){
+				if (neo_gdt[bgnr].bg_free_inodes_count > 0){
+					neo_sb_info.s_free_inodes_count --;
+					neo_gdt[bgnr].bg_free_inodes_count --;
+					write_sb_gdt_main(bgnr);
+					break;
+				}
+				bgnr = (bgnr + 1)%groupcnt;
+			}
+		}
+	}
+	if (ibcache.groupnr != bgnr){
+		if (ibcache.groupnr != -1){
+			fseek(fp,block_to_addr(neo_gdt[ibcache.groupnr].bg_inode_bitmap),SEEK_SET);
+			fwrite(ibcache.ibitmap,1,BLOCK_SIZE,fp);
+		}
+		fseek(fp,block_to_addr(neo_gdt[bgnr].bg_inode_bitmap),SEEK_SET);
+		//printf("addr = %d\n",block_to_addr(neo_gdt[bgnr].bg_block_bitmap));
+		fread(ibcache.ibitmap,1,BLOCK_SIZE,fp);
+		ibcache.groupnr = bgnr;
+	}
+	for (i = 0; i < BLOCK_SIZE; i++)		/*32 is the first 256 + 2or4 used blocks in the bitmap*/
+	{
+		//printf("bbitmap[%d] = %x\n",i,bbcache.bbitmap[i]);
+		if (ibcache.ibitmap[i] != 0xFF){	/*find empty block*/
+			for (j = 0, c = 0x80; j < 8; j++){
+				//printf("c = %x\n",c);
+				if ((ibcache.ibitmap[i]&c) == 0){
+					ibcache.ibitmap[i] += c;
+					//printf("i = %d\n",i);
+					//printf("j = %d\n",j);
+					//printf("c = %x\n",c);
+					return (neo_sb_info.s_inodes_per_group * bgnr + 8 * i + j);
+				}
+				c = c >> 1;
+			}
+		}
+	}
+}
+
 block_nr get_block(inode_nr ino)
 {/*inode只是申请策略所需，尽量申请inode所在组的块。只更新了内存中的sb和gdt，未写入disk*/
 	int i,j;
 	unsigned char c;
 	int groupcnt = neo_sb_info.s_groups_count;
-	int bgnr = ino / 8192;				/*8192即每组inode个数*/
+	bg_nr bgnr = ino / 8192;			/*8192即每组inode个数*/
 	for (i = 0; i < groupcnt; i++){
 		if (neo_gdt[bgnr].bg_free_blocks_count > 0){
 			neo_sb_info.s_free_blocks_count --;
 			neo_gdt[bgnr].bg_free_blocks_count --;
+			write_sb_gdt_main(bgnr);
 			break;
 		}
 		bgnr = (bgnr + 1)%groupcnt;
@@ -422,7 +507,7 @@ block_nr get_block(inode_nr ino)
 		fread(bbcache.bbitmap,1,BLOCK_SIZE,fp);
 		bbcache.groupnr = bgnr;
 	}
-	for (i = 32; i < BLOCK_SIZE; i++)		/*32 is the first 256 + 2or4 used blocks in the bitmap*/
+	for (i = FIRST_FREE_BLOCK; i < BLOCK_SIZE; i++)		/*32 is the first 256 + 2or4 used blocks in the bitmap*/
 	{
 		//printf("bbitmap[%d] = %x\n",i,bbcache.bbitmap[i]);
 		if (bbcache.bbitmap[i] != 0xFF){	/*find empty block*/
@@ -441,12 +526,60 @@ block_nr get_block(inode_nr ino)
 	}
 }
 
-void write_sb_gdt_main()
+void free_inode(inode_nr ino,__u16 i_mode)
+{
+	bg_nr bgnr = ino / 8192;
+	int l = (ino % 8192) / 8;
+	int r = (ino % 8192) % 8;
+	unsigned char c = 0x80;
+	if (ibcache.groupnr != bgnr){
+		if (ibcache.groupnr != -1){
+			fseek(fp,block_to_addr(neo_gdt[ibcache.groupnr].bg_inode_bitmap),SEEK_SET);
+			fwrite(ibcache.ibitmap,1,BLOCK_SIZE,fp);
+		}
+		fseek(fp,block_to_addr(neo_gdt[bgnr].bg_inode_bitmap),SEEK_SET);
+		//printf("addr = %d\n",block_to_addr(neo_gdt[bgnr].bg_block_bitmap));
+		fread(ibcache.ibitmap,1,BLOCK_SIZE,fp);
+		ibcache.groupnr = bgnr;
+	}
+	neo_sb_info.s_free_inodes_count ++;
+	neo_gdt[bgnr].bg_free_inodes_count ++;
+	if (i_mode == 2)
+		neo_gdt[bgnr].bg_used_dirs_count --;
+	write_sb_gdt_main(bgnr);
+	ibcache.ibitmap[l] -= (c >> r);
+}
+
+void free_block(block_nr blk)
+{
+	bg_nr bgnr = blk / BLOCKS_PER_GROUP;
+	int l = (blk % BLOCKS_PER_GROUP) / 8;
+	int r = (blk % BLOCKS_PER_GROUP) % 8;
+	unsigned char c = 0x80;
+	if (bbcache.groupnr != bgnr){
+		if (bbcache.groupnr != -1){
+			fseek(fp,block_to_addr(neo_gdt[bbcache.groupnr].bg_block_bitmap),SEEK_SET);
+			fwrite(bbcache.bbitmap,1,BLOCK_SIZE,fp);
+		}
+		fseek(fp,block_to_addr(neo_gdt[bgnr].bg_block_bitmap),SEEK_SET);
+		//printf("addr = %d\n",block_to_addr(neo_gdt[bgnr].bg_block_bitmap));
+		fread(bbcache.bbitmap,1,BLOCK_SIZE,fp);
+		bbcache.groupnr = bgnr;
+	}
+	neo_sb_info.s_free_blocks_count --;
+	neo_gdt[bgnr].bg_free_blocks_count --;
+	write_sb_gdt_main(bgnr);
+	bbcache.bbitmap[l] -= (c >> r);
+}
+
+void write_sb_gdt_main(bg_nr bgnr)
 {
 	fseek(fp,1024,SEEK_SET);
+	//print_sb(neo_sb_info);
 	fwrite(&neo_sb_info,sizeof(struct neo_super_block),1,fp);
-	fseek(fp,4096,SEEK_SET);
-	fwrite(neo_gdt,sizeof(struct neo_group_desc),neo_sb_info.s_groups_count,fp);
+	fseek(fp,4096 + (bgnr * sizeof(struct neo_group_desc)),SEEK_SET);
+	//print_gdt(neo_gdt,neo_sb_info.s_groups_count);
+	fwrite((neo_gdt + bgnr),sizeof(struct neo_group_desc),1,fp);
 }
 
 void write_sb_gdt_backups()
@@ -471,8 +604,8 @@ void print_sb(struct neo_super_block neo_sb_info)
 	printf("sb inodes count: %d\n",neo_sb_info.s_inodes_count);
 	printf("sb blocks count: %d\n",neo_sb_info.s_blocks_count);
 	printf("sb groups count: %d\n",neo_sb_info.s_groups_count);
-	printf("sb free inodes count: %d\n",neo_sb_info.s_inodes_count);
-	printf("sb free blocks count: %d\n",neo_sb_info.s_blocks_count);
+	printf("sb free inodes count: %d\n",neo_sb_info.s_free_inodes_count);
+	printf("sb free blocks count: %d\n",neo_sb_info.s_free_blocks_count);
 	printf("sb log block size: %d\n",neo_sb_info.s_log_block_size);
 	printf("sb blocks/group: %d\n",neo_sb_info.s_blocks_per_group);
 	printf("sb inodes/group: %d\n",neo_sb_info.s_inodes_per_group);

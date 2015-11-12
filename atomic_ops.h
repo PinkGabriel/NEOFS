@@ -17,7 +17,13 @@ extern inode_nr path_resolve(char *path);
 
 extern inode_nr search_dentry(inode_nr ino, char *name);
 
+extern int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode);
+
+extern int delete_dentry(inode_nr parent_ino,inode_nr ino);
+
 extern block_nr get_block(inode_nr ino);
+
+extern inode_nr get_inode(inode_nr ino,__u16 i_mode);
 
 extern void print_sb(struct neo_super_block neo_sb_info);
 
@@ -35,7 +41,7 @@ extern int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 
 extern void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent);
 
-extern void write_sb_gdt_main();
+extern void write_sb_gdt_main(bg_nr bgnr);
 
 extern void write_sb_gdt_backups();
 

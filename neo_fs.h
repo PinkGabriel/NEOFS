@@ -7,7 +7,7 @@
 #define BLOCKS_PER_GROUP (BLOCK_SIZE * 8)
 #define BLOCK_SIZE (1024<<LOG_BLOCK_SIZE)
 #define LOG_BLOCK_SIZE 2
-#define FIRST_FREE_BLOCK 260	/*metadata used 256+4=260 blocks*/
+#define FIRST_FREE_BLOCK 30	/*metadata used 256+4=260 blocks 260/8 = 32*/
 #define ROOT_ADDR 16512		/*root is node 1,ie,4blocks+128(inode 0 reserved) = 4*4096+128 = 16512*/
 #define DISKIMG "diskimg"
 
