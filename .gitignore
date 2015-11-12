@@ -4,5 +4,6 @@
 neo_fs
 format
 dumpneofs
+module_test
 diskimg
 diskimg_ori
