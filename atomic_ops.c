@@ -79,6 +79,7 @@ inode_nr search_dentry(inode_nr ino, char *name)
 				return info[0];
 			}
 		}
+		free(p);
 	}
 	return 0;
 }
@@ -235,9 +236,8 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 
 }
 
-int delete_dentry(inode_nr parent_ino,inode_nr ino)
+int delete_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 {
-	/*释放被删除节点的数据块，再删除inode*/
 	/*删除目录项*/
 	return 0;
 }
@@ -410,6 +410,7 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 	int i,j;
 	unsigned char c;
 	unsigned int aver_free_inodes,aver_free_blocks;
+	inode_nr res;
 	int groupcnt = neo_sb_info.s_groups_count;
 	int bgnr = ino / 8192;				/*8192即每组inode个数*/
 	int prev,tag = 0;
@@ -474,12 +475,32 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 					//printf("i = %d\n",i);
 					//printf("j = %d\n",j);
 					//printf("c = %x\n",c);
-					return (neo_sb_info.s_inodes_per_group * bgnr + 8 * i + j);
+					res = neo_sb_info.s_inodes_per_group * bgnr + 8 * i + j;
+					init_inode(res,i_mode);
+					return res;
 				}
 				c = c >> 1;
 			}
 		}
 	}
+}
+
+void init_inode(inode_nr res,__u16 i_mode)
+{
+	__u64 addr;
+	addr = inode_to_addr(res);
+	struct neo_inode new_inode;
+	new_inode.i_uid = getuid();
+	new_inode.i_gid = getgid();
+	new_inode.i_size = 0;
+	new_inode.i_blocks = 0;
+	new_inode.i_atime = time(NULL);
+	new_inode.i_ctime = new_inode.i_atime;
+	new_inode.i_mtime = new_inode.i_atime;
+	memset(new_inode.i_block,0,NEO_BLOCKS * sizeof(__u32));
+	new_inode.i_mode = i_mode;
+	fseek(fp,addr,SEEK_SET);
+	fwrite(&new_inode,sizeof(struct neo_inode),1,fp);
 }
 
 block_nr get_block(inode_nr ino)
@@ -526,12 +547,23 @@ block_nr get_block(inode_nr ino)
 	}
 }
 
-void free_inode(inode_nr ino,__u16 i_mode)
+int free_inode(inode_nr ino)
 {
 	bg_nr bgnr = ino / 8192;
+	__u16 i_mode;
 	int l = (ino % 8192) / 8;
 	int r = (ino % 8192) % 8;
+	__u64 addr;
 	unsigned char c = 0x80;
+	struct neo_inode del_inode;
+	addr = inode_to_addr(ino);
+	fseek(fp,addr,SEEK_SET);
+	fread(&del_inode,1,sizeof(struct neo_inode),fp);
+	i_mode = del_inode.i_mode;
+	if ((i_mode == 2) && (del_inode.i_blocks != 0)){
+		errno = ENOTEMPTY;
+		return -1;
+	}
 	if (ibcache.groupnr != bgnr){
 		if (ibcache.groupnr != -1){
 			fseek(fp,block_to_addr(neo_gdt[ibcache.groupnr].bg_inode_bitmap),SEEK_SET);
@@ -548,6 +580,14 @@ void free_inode(inode_nr ino,__u16 i_mode)
 		neo_gdt[bgnr].bg_used_dirs_count --;
 	write_sb_gdt_main(bgnr);
 	ibcache.ibitmap[l] -= (c >> r);
+	if ((i_mode == 1) && (del_inode.i_blocks != 0)){
+		free_selected_blocks(del_inode.i_block,0,del_inode.i_blocks);
+	}
+	return 0;
+}
+
+void free_selected_blocks(__u32 *i_block,__u32 start,__u32 end)
+{
 }
 
 void free_block(block_nr blk)

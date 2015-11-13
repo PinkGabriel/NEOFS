@@ -132,12 +132,16 @@ int main()
 	find = search_dentry(1,"finalfantasy7adventchildren");
 	printf("find inode : %d\n",find);
 	
-	add_dentry(1,get_inode(1,1),"FF33",1);
-	add_dentry(1,get_inode(1,2),"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",1);
-	add_dentry(1,get_inode(1,1),"FF33333",1);
+	//add_dentry(1,get_inode(1,1),"FF33",1);
+	//add_dentry(1,get_inode(1,2),"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",1);
+	//add_dentry(1,get_inode(1,1),"FF33333",1);
 	find = search_dentry(1,"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo");
 	printf("find inode : %d\n",find);
 	find = search_dentry(1,"FF33333");
+	printf("find inode : %d\n",find);
+	find = search_dentry(1,"neo");
+	printf("find inode : %d\n",find);
+	find = search_dentry(1,"neo333");
 	printf("find inode : %d\n",find);
 	
 	//free_inode(8192,2);

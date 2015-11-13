@@ -48,17 +48,7 @@ struct neo_super_block neo_sb_info;
 struct neo_group_desc *neo_gdt;
 struct block_bitmap_cache bbcache;
 struct inode_bitmap_cache ibcache;
-
-static int neo_getattr(const char *path, struct stat *stbuf)
-{
-	int res;
-
-	res = lstat(path, stbuf);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
+__u16 file_open_list[MAX_OPEN_COUNT];
 
 static int neo_access(const char *path, int mask)
 {
@@ -80,68 +70,6 @@ static int neo_readlink(const char *path, char *buf, size_t size)
 		return -errno;
 
 	buf[res] = '\0';
-	return 0;
-}
-
-
-static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-		       off_t offset, struct fuse_file_info *fi)
-{
-	DIR *dp;
-	struct dirent *de;
-
-	(void) offset;
-	(void) fi;
-
-	dp = opendir(path);
-	if (dp == NULL)
-		return -errno;
-
-	while ((de = readdir(dp)) != NULL) {
-		struct stat st;
-		memset(&st, 0, sizeof(st));
-		st.st_ino = de->d_ino;
-		st.st_mode = de->d_type << 12;
-		if (filler(buf, de->d_name, &st, 0))
-			break;
-	}
-
-	closedir(dp);
-	return 0;
-}
-
-static int neo_mkdir(const char *path, mode_t mode)
-{
-	int res;
-
-	syslog(LOG_INFO,"mkdir path %s",path);
-
-	res = mkdir(path, mode);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int neo_unlink(const char *path)
-{
-	int res;
-
-	res = unlink(path);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int neo_rmdir(const char *path)
-{
-	int res;
-
-	res = rmdir(path);
-	if (res == -1)
-		return -errno;
-
 	return 0;
 }
 
@@ -225,28 +153,6 @@ static int neo_utimens(const char *path, const struct timespec ts[2])
 }
 #endif
 
-static int neo_open(const char *path, struct fuse_file_info *fi)
-{
-	int res;
-
-	syslog(LOG_INFO,"open path %s",path);
-	syslog(LOG_INFO,"open fh %lu",fi->fh);
-	res = open(path, fi->flags);
-	if (res == -1)
-		return -errno;
-
-	close(res);
-	fi->fh = 333;
-	return 0;
-}
-
-static int neo_opendir (const char *path, struct fuse_file_info *fi)
-{
-	syslog(LOG_INFO,"opendir path %s",path);
-	syslog(LOG_INFO,"opendir fh %lu",fi->fh);
-	return 0;		
-}
-
 static int neo_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
@@ -293,16 +199,6 @@ static int neo_statfs(const char *path, struct statvfs *stbuf)
 	if (res == -1)
 		return -errno;
 
-	return 0;
-}
-
-static int neo_release(const char *path, struct fuse_file_info *fi)
-{
-	/* Just a stub.	 This method is optional and can safely be left
-	   unimplemented */
-
-	(void) path;
-	(void) fi;
 	return 0;
 }
 
@@ -398,21 +294,40 @@ void *neo_init (struct fuse_conn_info *conn)
 	memset(bbcache.bbitmap,0,BLOCK_SIZE);
 	ibcache.groupnr = -1;
 	memset(ibcache.ibitmap,0,BLOCK_SIZE);
-#ifdef DEBUG
+	memset(file_open_list,0,MAX_OPEN_COUNT);
+
 	print_sb(neo_sb_info);
 	print_gdt(neo_gdt,groupcnt);
-#endif
 
 	return 0;
 }
 
 static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
 {
-	int res;
+	inode_nr parent_ino;
+	inode_nr ino;
+	char *parent_path = strdup(path);
+	char *name = strrchr(parent_path,'/');
+	*name = '\0';
+	name ++;					/*此时parent_path是父目录路径，name为目标文件名*/
+	if (strlen(name) > 255)				/*文件名太长*/
+		return -ENAMETOOLONG;
+	if (*parent_path == '\0')
+		parent_ino = 1;
+	else
+		parent_ino = path_resolve(parent_path);
+	if (search_dentry(parent_ino,name))		/*文件已存在*/
+		return -EEXIST;
+	if ((neo_sb_info.s_free_inodes_count > 1) && (neo_sb_info.s_free_blocks_count > 1))
+		ino = get_inode(parent_ino,1);		/*按照普通文件分配一个inode*/
+	else
+		return -ENOSPC;				/*空间不足*/
+	add_dentry(parent_ino,ino,name,1);
+	return 0;
 
 	/* On Linux this could just be 'mknod(path, mode, rdev)' but this
 	   is more portable */
-	if (S_ISREG(mode)) {
+/*	if (S_ISREG(mode)) {
 		res = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
 		if (res >= 0)
 			res = close(res);
@@ -424,6 +339,286 @@ static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
 		return -errno;
 
 	return 0;
+*/
+}
+
+static int neo_mkdir(const char *path, mode_t mode)
+{
+	inode_nr parent_ino;
+	inode_nr ino;
+	syslog(LOG_INFO,"mkdir path %s",path);
+	char *parent_path = strdup(path);
+	char *name = strrchr(parent_path,'/');
+	*name = '\0';
+	name ++;					/*此时parent_path是父目录路径，name为目标文件名*/
+	if (strlen(name) > 255)				/*文件名太长*/
+		return -ENAMETOOLONG;
+	if (*parent_path == '\0')
+		parent_ino = 1;
+	else
+		parent_ino = path_resolve(parent_path);
+	if (search_dentry(parent_ino,name))		/*文件已存在*/
+		return -EEXIST;
+	if ((neo_sb_info.s_free_inodes_count > 1) && (neo_sb_info.s_free_blocks_count > 1))
+		ino = get_inode(parent_ino,2);		/*按照普通文件分配一个inode*/
+	else
+		return -ENOSPC;				/*空间不足*/
+	add_dentry(parent_ino,ino,name,2);
+	return 0;
+}
+
+static int neo_getattr(const char *path, struct stat *stbuf)
+{
+	struct neo_inode inode;
+	char *vpath = strdup(path);
+	inode_nr ino = path_resolve(vpath);
+	if (ino == 0)
+		return -errno;
+	fseek(fp,inode_to_addr(ino),SEEK_SET);
+	fread(&inode,sizeof(struct neo_inode),1,fp);
+	if(inode.i_mode == 1)
+		stbuf->st_mode = S_IFREG | 0644;
+	else
+		stbuf->st_mode = S_IFDIR | 0644;
+	stbuf->st_uid = inode.i_uid;
+	stbuf->st_gid = inode.i_gid; 
+	stbuf->st_size = inode.i_size;
+	stbuf->st_blocks = inode.i_blocks;
+	stbuf->st_ctime = inode.i_ctime;
+	stbuf->st_atime = inode.i_atime;
+	stbuf->st_mtime = inode.i_mtime;
+	return 0;
+
+/*
+	int res;
+
+	res = lstat(path, stbuf);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+*/
+}
+
+static int neo_open(const char *path, struct fuse_file_info *fi)
+{
+	int i;
+	char *vpath = strdup(path);
+	inode_nr ino = path_resolve(vpath);
+	syslog(LOG_INFO,"open path %s",vpath);
+	if (ino == 0)
+		return -errno;
+	for (i = 0; i < MAX_OPEN_COUNT; i++){
+		if (file_open_list[i] == 0)
+			break;
+	}
+	file_open_list[i] = ino;
+	fi->fh = i;
+	syslog(LOG_INFO,"open fh %lu",fi->fh);
+	return 0;
+/*
+	int res;
+
+	res = open(path, fi->flags);
+	if (res == -1)
+		return -errno;
+
+	close(res);
+	fi->fh = 333;
+	return 0;
+*/
+}
+
+static int neo_opendir (const char *path, struct fuse_file_info *fi)
+{
+	int i;
+	char *vpath = strdup(path);
+	syslog(LOG_INFO,"opendir path %s",vpath);
+	inode_nr ino = path_resolve(vpath);
+	if (ino == 0)
+		return -errno;
+	for (i = 0; i < MAX_OPEN_COUNT; i++){
+		if (file_open_list[i] == 0)
+			break;
+	}
+	file_open_list[i] = ino;
+	fi->fh = i;
+	syslog(LOG_INFO,"opendir inode %u",ino);
+	syslog(LOG_INFO,"opendir fh %lu",fi->fh);
+	return 0;
+}
+
+static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+		       off_t offset, struct fuse_file_info *fi)
+{
+	int i,n,offset_prev,offset_cur,blkcnt;
+	__u64 blkaddr;
+	__u32 *p = NULL;
+	void *block;
+	struct stat st;
+	struct neo_inode dirinode;
+	struct neo_dir_entry *cur;
+	syslog(LOG_INFO,"readdir get fh %lu",fi->fh);
+	inode_nr ino = file_open_list[fi->fh];
+	syslog(LOG_INFO,"readdir get inode %u",ino);
+	fseek(fp,inode_to_addr(ino),SEEK_SET);
+	fread(&dirinode,sizeof(struct neo_inode),1,fp);
+	if (dirinode.i_blocks == 0)
+		return 0;
+	blkcnt = dirinode.i_blocks;
+	block = (void *)malloc(BLOCK_SIZE);
+	cur = block;
+	offset_prev = 0;
+	offset_cur = 0;
+	if (blkcnt <= 12)
+		n = blkcnt;
+	else
+		n = 12;
+	for (i = 0; i < n; i++){
+		blkaddr = block_to_addr(dirinode.i_block[i]);
+		fseek(fp,blkaddr,SEEK_SET);
+		fread(block,BLOCK_SIZE,1,fp);
+		if (cur->inode == 0){
+			offset_prev += cur->rec_len;
+			offset_cur += cur->rec_len;
+			block += cur->rec_len;
+			cur = block;
+		}
+		do {
+			cur = block;
+			memset(&st, 0, sizeof(st));
+			st.st_ino = cur->inode;
+			st.st_mode = cur->file_type;
+			if (filler(buf, cur->name, &st, 0))
+				break;
+			offset_prev = offset_cur;
+			offset_cur += cur->rec_len;
+			block += cur->rec_len;
+		}
+		while ((offset_prev + cur->rec_len) != 4096);
+	}
+	if (blkcnt > 12){//dir file's max blocks count is 13,block[12] for indirect addr.
+		n = blkcnt - 12;
+		p = (__u32 *)malloc(4 * n);	//4 = sizeof(__32)
+		fseek(fp,block_to_addr(dirinode.i_block[12]),SEEK_SET);
+		fread(p,(4 * n),1,fp);
+		for (i = 0; i < n; i++){
+			blkaddr = block_to_addr(p[i]);
+			fseek(fp,blkaddr,SEEK_SET);
+			fread(block,BLOCK_SIZE,1,fp);
+			if (cur->inode == 0){
+				offset_prev += cur->rec_len;
+				offset_cur += cur->rec_len;
+				block += cur->rec_len;
+				cur = block;
+			}
+			do {
+				cur = block;
+				memset(&st, 0, sizeof(st));
+				st.st_ino = cur->inode;
+				st.st_mode = cur->file_type;
+				if (filler(buf, cur->name, &st, 0))
+					break;
+				offset_prev = offset_cur;
+				offset_cur += cur->rec_len;
+				block += cur->rec_len;
+			}
+			while ((offset_prev + cur->rec_len) != 4096);
+		}
+		free(p);
+	}
+	return 0;
+/*
+	DIR *dp;
+	struct dirent *de;
+
+	(void) offset;
+	(void) fi;
+
+	dp = opendir(path);
+	if (dp == NULL)
+		return -errno;
+
+	while ((de = readdir(dp)) != NULL) {
+		struct stat st;
+		memset(&st, 0, sizeof(st));
+		st.st_ino = de->d_ino;
+		st.st_mode = de->d_type << 12;
+		if (filler(buf, de->d_name, &st, 0))
+			break;
+	}
+
+	closedir(dp);
+	return 0;
+*/
+}
+
+static int neo_releasedir(const char *path, struct fuse_file_info *fi)
+{
+	file_open_list[fi->fh] = 0;
+	return 0;
+}
+
+static int neo_release(const char *path, struct fuse_file_info *fi)
+{
+	/* Just a stub.	 This method is optional and can safely be left
+	   unimplemented */
+
+	file_open_list[fi->fh] = 0;
+	return 0;
+}
+
+static int neo_unlink(const char *path)
+{
+	inode_nr parent_ino;
+	inode_nr ino;
+	syslog(LOG_INFO,"mkdir path %s",path);
+	char *parent_path = strdup(path);
+	char *name = strrchr(parent_path,'/');
+	*name = '\0';
+	name ++;					/*此时parent_path是父目录路径，name为目标文件名*/
+	if (strlen(name) > 255)				/*文件名太长*/
+		return -ENAMETOOLONG;
+	if (*parent_path == '\0')
+		parent_ino = 1;
+	else
+		parent_ino = path_resolve(parent_path);
+	ino = search_dentry(parent_ino,name);
+	if (ino == 0)					/*文件不存在*/
+		return -ENOENT;
+	if (free_inode(ino) == -1)				/*按照普通文件分配一个inode*/
+		return -errno;
+	delete_dentry(parent_ino,ino,name,1);
+	return 0;
+}
+
+static int neo_rmdir(const char *path)
+{
+	inode_nr parent_ino;
+	inode_nr ino;
+	syslog(LOG_INFO,"mkdir path %s",path);
+	char *parent_path = strdup(path);
+	char *name = strrchr(parent_path,'/');
+	*name = '\0';
+	name ++;					/*此时parent_path是父目录路径，name为目标文件名*/
+	if (strlen(name) > 255)				/*文件名太长*/
+		return -ENAMETOOLONG;
+	if (*parent_path == '\0')
+		parent_ino = 1;
+	else
+		parent_ino = path_resolve(parent_path);
+	ino = search_dentry(parent_ino,name);
+	if (ino == 0)					/*文件不存在*/
+		return -ENOENT;
+	if (free_inode(ino) == -1)				/*按照普通文件分配一个inode*/
+		return -errno;
+	delete_dentry(parent_ino,ino,name,2);
+	return 0;
+}
+
+static int neo_flush(const char *path, struct fuse_file_info *fi)
+{
+	return 0;
 }
 
 void neo_destroy(void *p)
@@ -431,36 +626,39 @@ void neo_destroy(void *p)
 	/*write sb and gdt to main copy and backups*/
 	/*write bbtimap and ibitmap to the disk*/
 	printf("\nthis is the destroy function\n");
+	write_bitmap();
 }
 
 static struct fuse_operations neo_oper = {
 
 	.init		= neo_init,
-	.mknod		= neo_mknod,
-
-	.open		= neo_open,
 	.getattr	= neo_getattr,
-	.access		= neo_access,
-	.readlink	= neo_readlink,
+	.mknod		= neo_mknod,
+	.destroy	= neo_destroy,
+	.open		= neo_open,
+	.opendir	= neo_opendir,
 	.readdir	= neo_readdir,
+	.releasedir     = neo_releasedir,
+	.release	= neo_release,
+	.flush		= neo_flush,
 	.mkdir		= neo_mkdir,
-	.symlink	= neo_symlink,
 	.unlink		= neo_unlink,
 	.rmdir		= neo_rmdir,
+/*
+	.access		= neo_access,
+	.readlink	= neo_readlink,
+	.symlink	= neo_symlink,
 	.rename		= neo_rename,
 	.link		= neo_link,
 	.chmod		= neo_chmod,
 	.chown		= neo_chown,
 	.truncate	= neo_truncate,
-	.destroy	= neo_destroy,
 #ifdef HAVE_UTIMENSAT
 	.utimens	= neo_utimens,
 #endif
-	.opendir	= neo_opendir,
 	.read		= neo_read,
 	.write		= neo_write,
 	.statfs		= neo_statfs,
-	.release	= neo_release,
 	.fsync		= neo_fsync,
 #ifdef HAVE_POSIX_FALLOCATE
 	.fallocate	= neo_fallocate,
@@ -471,6 +669,7 @@ static struct fuse_operations neo_oper = {
 	.listxattr	= neo_listxattr,
 	.removexattr	= neo_removexattr,
 #endif
+*/
 };
 
 int main(int argc, char *argv[])
