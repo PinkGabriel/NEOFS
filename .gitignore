@@ -2,6 +2,7 @@
 *.o
 *.swp
 neo_fs
+fs_test
 format
 dumpneofs
 module_test
