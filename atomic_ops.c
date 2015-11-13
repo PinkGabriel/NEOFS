@@ -581,13 +581,91 @@ int free_inode(inode_nr ino)
 	write_sb_gdt_main(bgnr);
 	ibcache.ibitmap[l] -= (c >> r);
 	if ((i_mode == 1) && (del_inode.i_blocks != 0)){
-		free_selected_blocks(del_inode.i_block,0,del_inode.i_blocks);
+		free_selected_blocks(del_inode.i_block,0,(del_inode.i_blocks - 1));
 	}
 	return 0;
 }
 
 void free_selected_blocks(__u32 *i_block,__u32 start,__u32 end)
-{
+{/*直接索引，1级间接，二级间接对应块区间分别是：0~11,12~1035,1036~1049611*/
+	int i,j;
+	int begin_page,end_page,begin_remainder,end_remainder;
+	void *block = NULL;
+	void *sub_block = NULL;
+	__u32 *p = NULL;
+	__u32 *q = NULL;
+	if (end <= 11){
+		for (i = start; i <= end; i ++){
+			free_block(i_block[i]);
+		}
+	}else if (end <= 1035){
+		for (i = start; i <= 11; i ++)
+			free_block(i_block[i]);
+		block = (void *)malloc(BLOCK_SIZE);
+		p = block;
+		fseek(fp,block_to_addr(i_block[12]),SEEK_SET);
+		fread(block,BLOCK_SIZE,1,fp);
+		for (i = ((start > 11) ? start : 12) - 12; i <= end -12; i ++)
+			free_block(*(p + i));
+		if (start <= 12)
+			free_block(i_block[12]);
+	}else {
+		for (i = start; i <= 11; i ++)
+			free_block(i_block[i]);
+
+		block = (void *)malloc(BLOCK_SIZE);
+		p = block;
+		sub_block = (void *)malloc(BLOCK_SIZE);
+		q = sub_block;
+		fseek(fp,block_to_addr(i_block[12]),SEEK_SET);
+		fread(block,BLOCK_SIZE,1,fp);
+		for (i = ((start > 11) ? start : 12) - 12; i <= 1023; i ++)
+			free_block(*(p + i));
+
+		fseek(fp,block_to_addr(i_block[13]),SEEK_SET);
+		fread(block,BLOCK_SIZE,1,fp);
+		begin_page = (((start > 1035) ? start : 1036) - 1036) / 1024;
+		begin_remainder = (((start > 1035) ? start : 1036) - 1036) % 1024;
+		end_page = (end - 1036) / 1024;
+		end_remainder = (end - 1036) % 1024;
+		if (begin_page == end_page){
+			fseek(fp,block_to_addr(*(p + begin_page)),SEEK_SET);
+			fread(sub_block,BLOCK_SIZE,1,fp);
+			for (i = begin_remainder; i <= end_remainder; i ++){
+				free_block(*(q + i));
+			}
+			if (begin_remainder == 0)
+				free_block(*(p + begin_page));
+		}else {
+			fseek(fp,block_to_addr(*(p + begin_page)),SEEK_SET);
+			fread(sub_block,BLOCK_SIZE,1,fp);
+			for (i = begin_remainder; i <= 1023; i ++){
+				free_block(*(q + i));
+			}
+			if (begin_remainder == 0)
+				free_block(*(p + begin_page));
+
+			for (i = begin_page + 1; i <= end_page - 1; i ++){
+				fseek(fp,block_to_addr(*(p + i)),SEEK_SET);
+				fread(sub_block,BLOCK_SIZE,1,fp);
+				for (j = 0; j <= 1023; j ++)
+					free_block(*(q + j));
+				free_block(*(p + i));
+			}
+
+			fseek(fp,block_to_addr(*(p + end_page)),SEEK_SET);
+			fread(sub_block,BLOCK_SIZE,1,fp);
+			for (i = 0; i <= end_remainder; i ++){
+				free_block(*(q + i));
+			}
+			free_block(*(p + end_page));
+		}
+		if (start <= 12){
+			free_block(i_block[12]);
+			free_block(i_block[13]);
+		}else if (start <= 1036)
+			free_block(i_block[13]);
+	}
 }
 
 void free_block(block_nr blk)
