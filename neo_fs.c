@@ -363,15 +363,20 @@ static int neo_mkdir(const char *path, mode_t mode)
 		ino = get_inode(parent_ino,2);		/*按照普通文件分配一个inode*/
 	else
 		return -ENOSPC;				/*空间不足*/
+	syslog(LOG_INFO,"mkdir ino %d",ino);
 	add_dentry(parent_ino,ino,name,2);
+	syslog(LOG_INFO,"mkdir ino %s",name);
 	return 0;
 }
 
 static int neo_getattr(const char *path, struct stat *stbuf)
 {
 	struct neo_inode inode;
-	char *vpath = strdup(path);
-	inode_nr ino = path_resolve(vpath);
+	char *vpath;
+	inode_nr ino;
+	vpath = strdup(path);
+	ino = path_resolve(vpath);
+	syslog(LOG_INFO,"getattr path %s",vpath);
 	if (ino == 0)
 		return -errno;
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
@@ -380,6 +385,8 @@ static int neo_getattr(const char *path, struct stat *stbuf)
 		stbuf->st_mode = S_IFREG | 0644;
 	else
 		stbuf->st_mode = S_IFDIR | 0644;
+	stbuf->st_ino = ino;
+	syslog(LOG_INFO,"getattr inode %lu",stbuf->st_ino);
 	stbuf->st_uid = inode.i_uid;
 	stbuf->st_gid = inode.i_gid; 
 	stbuf->st_size = inode.i_size;
@@ -387,6 +394,7 @@ static int neo_getattr(const char *path, struct stat *stbuf)
 	stbuf->st_ctime = inode.i_ctime;
 	stbuf->st_atime = inode.i_atime;
 	stbuf->st_mtime = inode.i_mtime;
+	syslog(LOG_INFO,"getattr uid %d",inode.i_uid);
 	return 0;
 
 /*
@@ -452,6 +460,7 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		       off_t offset, struct fuse_file_info *fi)
 {
 	int i,n,offset_prev,offset_cur,blkcnt;
+	char fname[MAX_FILE_NAME];
 	__u64 blkaddr;
 	__u32 *p = NULL;
 	void *block;
@@ -460,7 +469,6 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	struct neo_dir_entry *cur;
 	syslog(LOG_INFO,"readdir get fh %lu",fi->fh);
 	inode_nr ino = file_open_list[fi->fh];
-	syslog(LOG_INFO,"readdir get inode %u",ino);
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
 	fread(&dirinode,sizeof(struct neo_inode),1,fp);
 	if (dirinode.i_blocks == 0)
@@ -470,6 +478,7 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	cur = block;
 	offset_prev = 0;
 	offset_cur = 0;
+	memset(fname,0,MAX_FILE_NAME);
 	if (blkcnt <= 12)
 		n = blkcnt;
 	else
@@ -487,10 +496,20 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		do {
 			cur = block;
 			memset(&st, 0, sizeof(st));
+			memset(fname,0,MAX_FILE_NAME);
+			strncpy(fname,cur->name,cur->name_len);
 			st.st_ino = cur->inode;
-			st.st_mode = cur->file_type;
-			if (filler(buf, cur->name, &st, 0))
-				break;
+			syslog(LOG_INFO,"readdir st inode %lu",st.st_ino);
+			if(cur->file_type == 1)
+				st.st_mode = S_IFREG | 0644;
+			else
+				st.st_mode = S_IFDIR | 0644;
+
+			syslog(LOG_INFO,"readdir_name %s",fname);
+			syslog(LOG_INFO,"readdir_inode %d",cur->inode);
+			//if (filler(buf, cur->name, &st, 0))
+			//	break;
+			filler(buf, fname, &st, 0);
 			offset_prev = offset_cur;
 			offset_cur += cur->rec_len;
 			block += cur->rec_len;
@@ -515,10 +534,13 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			do {
 				cur = block;
 				memset(&st, 0, sizeof(st));
+				memset(fname,0,MAX_FILE_NAME);
+				strncpy(fname,cur->name,cur->name_len);
 				st.st_ino = cur->inode;
 				st.st_mode = cur->file_type;
-				if (filler(buf, cur->name, &st, 0))
-					break;
+				//if (filler(buf, cur->name, &st, 0))
+				//	break;
+				filler(buf, fname, &st, 0);
 				offset_prev = offset_cur;
 				offset_cur += cur->rec_len;
 				block += cur->rec_len;
@@ -572,7 +594,7 @@ static int neo_unlink(const char *path)
 {
 	inode_nr parent_ino;
 	inode_nr ino;
-	syslog(LOG_INFO,"mkdir path %s",path);
+	syslog(LOG_INFO,"unlink path %s",path);
 	char *parent_path = strdup(path);
 	char *name = strrchr(parent_path,'/');
 	*name = '\0';
@@ -586,9 +608,12 @@ static int neo_unlink(const char *path)
 	ino = search_dentry(parent_ino,name);
 	if (ino == 0)					/*文件不存在*/
 		return -ENOENT;
+	syslog(LOG_INFO,"unlink parent_ino %d",ino);
+	syslog(LOG_INFO,"unlink ino %d",ino);
+	syslog(LOG_INFO,"unlink name %s",name);
 	if (free_inode(ino) == -1)				/*按照普通文件分配一个inode*/
 		return -errno;
-	delete_dentry(parent_ino,ino,name,1);
+	delete_dentry(parent_ino,name,1);
 	return 0;
 }
 
@@ -596,7 +621,7 @@ static int neo_rmdir(const char *path)
 {
 	inode_nr parent_ino;
 	inode_nr ino;
-	syslog(LOG_INFO,"mkdir path %s",path);
+	syslog(LOG_INFO,"rmdir path %s",path);
 	char *parent_path = strdup(path);
 	char *name = strrchr(parent_path,'/');
 	*name = '\0';
@@ -612,7 +637,7 @@ static int neo_rmdir(const char *path)
 		return -ENOENT;
 	if (free_inode(ino) == -1)				/*按照普通文件分配一个inode*/
 		return -errno;
-	delete_dentry(parent_ino,ino,name,2);
+	delete_dentry(parent_ino,name,2);
 	return 0;
 }
 

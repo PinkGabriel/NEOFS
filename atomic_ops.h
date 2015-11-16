@@ -21,7 +21,10 @@ extern inode_nr search_dentry(inode_nr ino, char *name);
 
 extern int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode);
 
-extern int delete_dentry(inode_nr parent_ino,inode_nr ino,char *name,__u16 i_mode);
+extern int delete_dentry(inode_nr parent_ino,char *name,__u16 i_mode);
+
+extern void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned int info[]);
+
 
 extern block_nr get_block(inode_nr ino);
 

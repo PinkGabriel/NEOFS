@@ -120,7 +120,31 @@ void make_a_dirent_example()
 	fwrite(&tmp,16,1,fp);
 }
 
-int main()
+int rmdir()
+{
+	inode_nr parent_ino;
+	inode_nr ino;
+	char *path = "/neo1";
+	char *parent_path = strdup(path);
+	char *name = strrchr(parent_path,'/');
+	*name = '\0';
+	name ++;					/*此时parent_path是父目录路径，name为目标文件名*/
+	if (strlen(name) > 255)				/*文件名太长*/
+		return -ENAMETOOLONG;
+	if (*parent_path == '\0')
+		parent_ino = 1;
+	else
+		parent_ino = path_resolve(parent_path);
+	ino = search_dentry(parent_ino,name);
+	if (ino == 0)					/*文件不存在*/
+		return -ENOENT;
+	if (free_inode(ino) == -1)				/*按照普通文件分配一个inode*/
+		return -errno;
+	delete_dentry(parent_ino,name,2);
+	return 0;
+}
+
+int main(int argc,char *argv[])
 {
 	inode_nr find;
 	printf("this is a module test program\n\n");
@@ -129,24 +153,24 @@ int main()
 	//path_resolve("/abc/asds/asdfds/asdfsd/ghg");
 	
 	//find = search_dentry(1,"worldofwarcraft");
-	find = search_dentry(1,"finalfantasy7adventchildren");
-	printf("find inode : %d\n",find);
-	
+
+	//find = search_dentry(8192,argv[1]);
+	//printf("find inode : %d\n",find);
+	rmdir();
+	//find = path_resolve(argv[2]);
+	//printf("find inode : %d\n",find);
 	//add_dentry(1,get_inode(1,1),"FF33",1);
 	//add_dentry(1,get_inode(1,2),"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",1);
 	//add_dentry(1,get_inode(1,1),"FF33333",1);
-	find = search_dentry(1,"FFwaooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo");
-	printf("find inode : %d\n",find);
-	find = search_dentry(1,"FF33333");
-	printf("find inode : %d\n",find);
-	find = search_dentry(1,"neo");
-	printf("find inode : %d\n",find);
-	find = search_dentry(1,"neo333");
-	printf("find inode : %d\n",find);
 	
+	//delete_dentry(1,"FF33",1);
 	//free_inode(8192,2);
+	find = get_inode(1,2);
+	add_dentry(1,find,"wao1",2);
 
-	write_bitmap();
+	find = path_resolve("/wao1");
+	printf("find inode : %d\n",find);
+	//write_bitmap();
 	return 0;
 }
 
