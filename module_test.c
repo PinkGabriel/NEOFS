@@ -124,7 +124,7 @@ int rmdir()
 {
 	inode_nr parent_ino;
 	inode_nr ino;
-	char *path = "/neo1";
+	char *path = "/neo3";
 	char *parent_path = strdup(path);
 	char *name = strrchr(parent_path,'/');
 	*name = '\0';
@@ -144,6 +144,22 @@ int rmdir()
 	return 0;
 }
 
+void print_i_block(inode_nr ino)
+{
+	int i;
+	__u64 addr;
+	struct neo_inode inode;
+	addr = inode_to_addr(ino);
+	fseek(fp,addr,SEEK_SET);
+	fread(&inode,sizeof(struct neo_inode),1,fp);
+	printf("file size: %d\n",inode.i_size);
+	for (i = 0; i < 12; i ++)
+		printf("i block [%d] is %d\n",i,inode.i_block[i]);
+	for (i = 0; i < inode.i_blocks; i ++){
+		printf("i block [%d] is %d\n",i,(i_block_to_addr(i,inode.i_block) / 4096));
+	}
+}
+
 int main(int argc,char *argv[])
 {
 	inode_nr find;
@@ -156,7 +172,7 @@ int main(int argc,char *argv[])
 
 	//find = search_dentry(8192,argv[1]);
 	//printf("find inode : %d\n",find);
-	rmdir();
+	//rmdir();
 	//find = path_resolve(argv[2]);
 	//printf("find inode : %d\n",find);
 	//add_dentry(1,get_inode(1,1),"FF33",1);
@@ -165,12 +181,13 @@ int main(int argc,char *argv[])
 	
 	//delete_dentry(1,"FF33",1);
 	//free_inode(8192,2);
-	find = get_inode(1,2);
-	add_dentry(1,find,"wao1",2);
 
+	find = path_resolve("/neo3");
+	printf("last neo3 find inode : %d\n",find);
 	find = path_resolve("/wao1");
-	printf("find inode : %d\n",find);
+	printf("last wao1 find inode : %d\n",find);
 	//write_bitmap();
+	print_i_block(2);
 	return 0;
 }
 

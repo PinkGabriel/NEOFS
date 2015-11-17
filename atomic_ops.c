@@ -348,17 +348,17 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 		parent.i_blocks --;
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 		fwrite(&parent,sizeof(struct neo_inode),1,fp);
-	}else if ((info[2] == info[3]) && (info[2] == 0)){				/*此目录项是第一个项,前为空白*/
+	}else if ((info[2] == info[3]) && (info[2] == 0)){	/*此目录项是第一个项,顶头*/
 		del.inode = 0;
-		fseek(fp,(blkaddr + info[3]),SEEK_SET);
+		fseek(fp,blkaddr,SEEK_SET);
 		fwrite(&del,8,1,fp);
-	}else if ((info[2] == info[3]) && (info[2] != 0)){				/*此目录项是第一个项,前非空白*/
+	}else if ((info[2] == info[3]) && (info[2] != 0)){	/*此目录项是第一个项,前是空白*/
 		fseek(fp,blkaddr,SEEK_SET);
 		fread(&blank,8,1,fp);
 		blank.rec_len += del.rec_len;
 		fseek(fp,blkaddr,SEEK_SET);
 		fwrite(&blank,8,1,fp);
-	}else if ((prev.rec_len > true_prev_len) && (info[1] > true_cur_len)){		/*此目录项前是空白*/
+	}else if (prev.rec_len > true_prev_len){		/*此目录项不在开头,前是空白*/
 		prev.rec_len += del.rec_len;
 		fseek(fp,(blkaddr + info[2]),SEEK_SET);
 		fwrite(&prev,8,1,fp);
@@ -367,7 +367,7 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 		blank.rec_len += del.rec_len;
 		fseek(fp,(blkaddr + info[2] + true_prev_len),SEEK_SET);
 		fwrite(&blank,8,1,fp);
-	}else if ((prev.rec_len == true_prev_len) && (info[1] > true_cur_len)){		/*此目录项前非空白*/
+	}else if (prev.rec_len == true_prev_len){		/*此目录项不在开头,前非空白*/
 		prev.rec_len += del.rec_len;
 		fseek(fp,(blkaddr + info[2]),SEEK_SET);
 		fwrite(&prev,8,1,fp);
@@ -503,8 +503,8 @@ void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent)
 	//true_len = (dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8;
 	true_len = TRUE_LEN(dirent.name_len);
 	if (info[0] == 0){				/*空闲区域在此块的开头*/
-		fseek(fp,blkaddr,SEEK_SET);
 		dirent.rec_len = info[1];
+		fseek(fp,blkaddr,SEEK_SET);
 		fwrite(&dirent,true_len,1,fp);
 		
 		blank.rec_len = info[1] - true_len;
@@ -517,8 +517,8 @@ void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent)
 		fseek(fp,-8,SEEK_CUR);
 		fwrite(&tmp,8,1,fp);
 
-		fseek(fp,blkaddr + info[3] + tmp.rec_len,SEEK_SET);
 		dirent.rec_len = 4096 - info[3] - tmp.rec_len;
+		fseek(fp,blkaddr + info[3] + tmp.rec_len,SEEK_SET);
 		fwrite(&dirent,true_len,1,fp);
 
 		blank.rec_len = dirent.rec_len - true_len;
@@ -532,8 +532,8 @@ void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent)
 		fseek(fp,-8,SEEK_CUR);
 		fwrite(&tmp,8,1,fp);
 
-		fseek(fp,blkaddr + info[3] + tmp.rec_len,SEEK_SET);
 		dirent.rec_len = mid - tmp.rec_len;
+		fseek(fp,blkaddr + info[3] + tmp.rec_len,SEEK_SET);
 		fwrite(&dirent,true_len,1,fp);
 
 		blank.rec_len = dirent.rec_len - true_len;
@@ -641,7 +641,7 @@ void init_inode(inode_nr res,__u16 i_mode)
 }
 
 block_nr get_block(inode_nr ino)
-{/*inode只是申请策略所需，尽量申请inode所在组的块。只更新了内存中的sb和gdt，未写入disk*/
+{/*inode只是申请策略所需，尽量申请inode所在组的块*/
 	int i,j;
 	unsigned char c;
 	int groupcnt = neo_sb_info.s_groups_count;
@@ -721,6 +721,63 @@ int free_inode(inode_nr ino)
 		free_selected_blocks(del_inode.i_block,0,(del_inode.i_blocks - 1));
 	}
 	return 0;
+}
+
+void get_selected_blocks(__u32 *i_block,inode_nr ino,__u32 start,__u32 end)
+{
+	int i;
+	int blk_n,blk_r;
+	block_nr blknr,iblknr;
+	__u64 iaddr;
+	if (end <= 11){
+		for (i = start; i <= end; i ++)
+			i_block[i] = get_block(ino);
+	}else if (end <= 1035){
+		if (start <= 12)
+			i_block[12] = get_block(ino);
+
+		for (i = start; i <= 11; i ++)
+			i_block[i] = get_block(ino);
+		iaddr = block_to_addr(i_block[12]);
+		for (i = ((start > 12) ? start : 12); i <= end; i ++){
+			blknr = get_block(ino);
+			fseek(fp,iaddr + (i - 12) * 4,SEEK_SET);
+			fwrite(&blknr,4,1,fp);
+		}
+	}else {
+		if (start <= 12){
+			i_block[12] = get_block(ino);
+			i_block[13] = get_block(ino);
+		}
+		else if (start <= 1036)
+			i_block[13] = get_block(ino);
+
+		for (i = start; i <= 11; i ++)
+			i_block[i] = get_block(ino);
+		for (i = ((start > 12) ? start : 12); i <= 1035; i ++){
+			blknr = get_block(ino);
+			fseek(fp,(block_to_addr(i_block[12]) + (i - 12) * 4),SEEK_SET);
+			fwrite(&blknr,4,1,fp);
+		}
+		for (i = ((start > 1036) ? start : 1036); i <= end; i ++){
+			blk_n = (i - 1036) / BLOCK_SIZE;
+			blk_r = (i - 1036) % BLOCK_SIZE;
+			if (blk_r == 0){
+				iblknr = get_block(ino);
+				fseek(fp,(block_to_addr(i_block[13]) + blk_n * 4),SEEK_SET);
+				fwrite(&iblknr,4,1,fp);
+				blknr = get_block(ino);
+				fseek(fp,block_to_addr(iblknr),SEEK_SET);
+				fwrite(&blknr,4,1,fp);
+			}else {
+				fseek(fp,(block_to_addr(i_block[13]) + blk_n * 4),SEEK_SET);
+				fread(&iblknr,4,1,fp);
+				blknr = get_block(ino);
+				fseek(fp,(block_to_addr(iblknr) + blk_r * 4),SEEK_SET);
+				fwrite(&blknr,4,1,fp);
+			}
+		}
+	}
 }
 
 void free_selected_blocks(__u32 *i_block,__u32 start,__u32 end)
@@ -921,6 +978,28 @@ __u64 inode_to_addr(inode_nr ino)
 	offset += (BLOCK_SIZE * BLOCKS_PER_GROUP * groupnr + r * neo_sb_info.s_inode_size);
 	//printf("inode %d addr is %d\n\n",ino,offset);
 	return offset;
+}
+
+__u64 i_block_to_addr(block_nr blknr,block_nr i_block[])
+{
+	__u64 blkaddr;
+	__u32 iiblk_n,iiblk_r,blk,iblk;
+	if (blknr <= 11){
+		blkaddr = block_to_addr(i_block[blknr]);
+	}else if (blknr <= 1035){
+		fseek(fp,(block_to_addr(i_block[12]) + ((blknr - 12) * 4)),SEEK_SET);
+		fread(&blk,4,1,fp);
+		blkaddr = block_to_addr(blk);
+	}else {
+		iiblk_n = (blknr - 1036) / 1024;
+		iiblk_r = (blknr - 1036) % 1024;
+		fseek(fp,(block_to_addr(i_block[13]) + iiblk_n * 4),SEEK_SET);
+		fread(&iblk,4,1,fp);
+		fseek(fp,(block_to_addr(iblk) + iiblk_r * 4),SEEK_SET);
+		fread(&blk,4,1,fp);
+		blkaddr = block_to_addr(blk);
+	}
+	return blkaddr;
 }
 
 __u64 inline block_to_addr(block_nr blk)

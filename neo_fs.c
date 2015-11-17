@@ -153,44 +153,6 @@ static int neo_utimens(const char *path, const struct timespec ts[2])
 }
 #endif
 
-static int neo_read(const char *path, char *buf, size_t size, off_t offset,
-		    struct fuse_file_info *fi)
-{
-	int fd;
-	int res;
-
-	(void) fi;
-	fd = open(path, O_RDONLY);
-	if (fd == -1)
-		return -errno;
-
-	res = pread(fd, buf, size, offset);
-	if (res == -1)
-		res = -errno;
-
-	close(fd);
-	return res;
-}
-
-static int neo_write(const char *path, const char *buf, size_t size,
-		     off_t offset, struct fuse_file_info *fi)
-{
-	int fd;
-	int res;
-
-	(void) fi;
-	fd = open(path, O_WRONLY);
-	if (fd == -1)
-		return -errno;
-
-	res = pwrite(fd, buf, size, offset);
-	if (res == -1)
-		res = -errno;
-
-	close(fd);
-	return res;
-}
-
 static int neo_statfs(const char *path, struct statvfs *stbuf)
 {
 	int res;
@@ -641,6 +603,108 @@ static int neo_rmdir(const char *path)
 	return 0;
 }
 
+static int neo_read(const char *path, char *buf, size_t size, off_t offset,
+		    struct fuse_file_info *fi)
+{
+	//inode_nr ino = file_open_list[fi->fh];
+	return 0;
+/*
+	int fd;
+	int res;
+
+	(void) fi;
+	fd = open(path, O_RDONLY);
+	if (fd == -1)
+		return -errno;
+
+	res = pread(fd, buf, size, offset);
+	if (res == -1)
+		res = -errno;
+
+	close(fd);
+	return res;
+*/
+}
+
+static int neo_write(const char *path, const char *buf, size_t size,
+		     off_t offset, struct fuse_file_info *fi)
+{/*直接索引，1级间接，二级间接对应块区间分别是：0~11,12~1035,1036~1049611*/
+	block_nr start;
+	block_nr end;
+
+	int i,j;
+
+	void *block;
+	void *iblock;
+	struct neo_inode write_inode;
+
+	unsigned int start_blk;	/*写入的内容的起始和结束位置的块号和在块中的偏移*/
+	unsigned int start_r;
+	unsigned int end_blk;
+	unsigned int end_r;
+
+	inode_nr ino = file_open_list[fi->fh];
+	if ((offset + size) > MAX_FILE_SIZE){
+		return -EFBIG;
+	}
+
+	fseek(fp,inode_to_addr(ino),SEEK_SET);
+	fread(&write_inode,sizeof(struct neo_inode),1,fp);
+
+	syslog(LOG_INFO,"write inode %d",ino);
+	syslog(LOG_INFO,"write offset %ld",offset);
+	syslog(LOG_INFO,"write size %ld",size);
+
+	start = write_inode.i_blocks;
+	end = SIZE_TO_BLKCNT(offset + size);
+	block = (void *)malloc(BLOCK_SIZE);
+	iblock = (void *)malloc(BLOCK_SIZE);
+	if ((offset + size) > write_inode.i_size){
+		write_inode.i_size = offset + size;
+		if (end > start){
+			get_selected_blocks(write_inode.i_block,ino,start,(end - 1));
+			write_inode.i_blocks = end;
+		}
+	}
+	start_blk = offset / BLOCK_SIZE;
+	start_r = offset % BLOCK_SIZE;
+	end_blk = (offset + size) / BLOCK_SIZE;
+	end_r = (offset + size) % BLOCK_SIZE;
+
+	if (start_blk == end_blk){
+		fseek(fp,(i_block_to_addr(start_blk,write_inode.i_block) + start_r),SEEK_SET);
+		fwrite(buf,size,1,fp);
+	}else {
+		fseek(fp,(i_block_to_addr(start_blk,write_inode.i_block) + start_r),SEEK_SET);
+		fwrite(buf,(BLOCK_SIZE - start_r),1,fp);
+		for (i = (start_blk + 1), j = 0; i <= (end_blk -1); i ++,j ++){
+			fseek(fp,i_block_to_addr(i,write_inode.i_block),SEEK_SET);
+			fwrite(buf + (BLOCK_SIZE - start_r) + (j * BLOCK_SIZE),BLOCK_SIZE,1,fp);
+		}
+		fseek(fp,i_block_to_addr(end_blk,write_inode.i_block),SEEK_SET);
+		fwrite(buf + (size - end_r),end_r,1,fp);
+	}
+	fseek(fp,inode_to_addr(ino),SEEK_SET);
+	fwrite(&write_inode,sizeof(struct neo_inode),1,fp);
+	return size;
+/*
+	int fd;
+	int res;
+
+	(void) fi;
+	fd = open(path, O_WRONLY);
+	if (fd == -1)
+		return -errno;
+
+	res = pwrite(fd, buf, size, offset);
+	if (res == -1)
+		res = -errno;
+
+	close(fd);
+	return res;
+*/
+}
+
 static int neo_flush(const char *path, struct fuse_file_info *fi)
 {
 	return 0;
@@ -669,6 +733,8 @@ static struct fuse_operations neo_oper = {
 	.mkdir		= neo_mkdir,
 	.unlink		= neo_unlink,
 	.rmdir		= neo_rmdir,
+	.read		= neo_read,
+	.write		= neo_write,
 /*
 	.access		= neo_access,
 	.readlink	= neo_readlink,
@@ -681,8 +747,6 @@ static struct fuse_operations neo_oper = {
 #ifdef HAVE_UTIMENSAT
 	.utimens	= neo_utimens,
 #endif
-	.read		= neo_read,
-	.write		= neo_write,
 	.statfs		= neo_statfs,
 	.fsync		= neo_fsync,
 #ifdef HAVE_POSIX_FALLOCATE

@@ -3,6 +3,7 @@
 
 #define NEO_BLOCKS 15
 #define MAX_FILE_NAME 255
+#define MAX_FILE_SIZE 4294967296
 #define MAX_FS_SIZE 17179869184
 #define BLOCKS_PER_GROUP (BLOCK_SIZE * 8)
 #define BLOCK_SIZE (1024<<LOG_BLOCK_SIZE)
@@ -22,7 +23,8 @@ typedef unsigned char	__u8;
 #define inode_nr __u32
 #define bg_nr __u32
 
-#define TRUE_LEN(x) (((x%4)?(4 - x%4 + x):(x)) + 8)
+#define TRUE_LEN(x) ((((x)%4)?(4 - (x)%4 + (x)):(x)) + 8)
+#define SIZE_TO_BLKCNT(x) (((x)%4096)?((x)/4096 + 1):((x)/4096))
 
 struct neo_super_block
 {/*38Byte __u32:unsigned int; __u16:unsigned short; __u8:unsigned char */

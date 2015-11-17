@@ -30,6 +30,8 @@ extern block_nr get_block(inode_nr ino);
 
 extern void free_block(block_nr blk);
 
+extern void get_selected_blocks(__u32 *i_block,inode_nr ino,__u32 start,__u32 end);
+
 extern void free_selected_blocks(__u32 *i_block,__u32 start,__u32 end);
 
 extern inode_nr get_inode(inode_nr ino,__u16 i_mode);
@@ -45,6 +47,8 @@ extern void print_gdt(struct neo_group_desc *gdt,int groupcnt);
 extern void print_inode(struct neo_inode ino);
 
 extern __u64 inode_to_addr(inode_nr ino);
+
+extern __u64 i_block_to_addr(block_nr blknr,block_nr i_block[]);
 
 extern __u64 inline block_to_addr(block_nr blk);
 
