@@ -26,9 +26,9 @@ inode_nr path_resolve(char *path)
 			return 0;
 		}
 		strncpy(tmp,path,pos - path);
-		syslog(LOG_INFO,"path resolve while %s",tmp);
+		//syslog(LOG_INFO,"path resolve while %s",tmp);
 		parent = search_dentry(parent,tmp);
-		syslog(LOG_INFO,"path resolve while %d",parent);
+		//syslog(LOG_INFO,"path resolve while %d",parent);
 		//printf("%s\n",tmp);
 		if (parent == 0){
 			errno = ENOENT;
@@ -37,10 +37,10 @@ inode_nr path_resolve(char *path)
 		path = ++pos;
 	}
 	//printf("%s\n",path);
-	syslog(LOG_INFO,"path resolve last %d",parent);
-	syslog(LOG_INFO,"path resolve last %s",path);
+	//syslog(LOG_INFO,"path resolve last %d",parent);
+	//syslog(LOG_INFO,"path resolve last %s",path);
 	if ((res = search_dentry(parent,path)) != 0){
-		syslog(LOG_INFO,"path resolve res %u",res);
+		//syslog(LOG_INFO,"path resolve res %u",res);
 		return res;
 	}else {
 		errno = ENOENT;
