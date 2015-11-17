@@ -745,23 +745,17 @@ void get_selected_blocks(__u32 *i_block,inode_nr ino,__u32 start,__u32 end)
 			fwrite(&blknr,4,1,fp);
 		}
 	}else {
-		if (start <= 12){
-			i_block[12] = get_block(ino);
-			i_block[13] = get_block(ino);
-		}
-		else if (start <= 1036)
+		if (start <= 1036)
 			i_block[13] = get_block(ino);
 
-		for (i = start; i <= 11; i ++)
-			i_block[i] = get_block(ino);
-		for (i = ((start > 12) ? start : 12); i <= 1035; i ++){
+		for (i = start; i <= 1035; i ++){
 			blknr = get_block(ino);
 			fseek(fp,(block_to_addr(i_block[12]) + (i - 12) * 4),SEEK_SET);
 			fwrite(&blknr,4,1,fp);
 		}
 		for (i = ((start > 1036) ? start : 1036); i <= end; i ++){
-			blk_n = (i - 1036) / BLOCK_SIZE;
-			blk_r = (i - 1036) % BLOCK_SIZE;
+			blk_n = (i - 1036) / 1024;
+			blk_r = (i - 1036) % 1024;
 			if (blk_r == 0){
 				iblknr = get_block(ino);
 				fseek(fp,(block_to_addr(i_block[13]) + blk_n * 4),SEEK_SET);

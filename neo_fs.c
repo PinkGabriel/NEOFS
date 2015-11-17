@@ -634,8 +634,6 @@ static int neo_write(const char *path, const char *buf, size_t size,
 
 	int i,j;
 
-	void *block;
-	void *iblock;
 	struct neo_inode write_inode;
 
 	unsigned int start_blk;	/*写入的内容的起始和结束位置的块号和在块中的偏移*/
@@ -651,14 +649,8 @@ static int neo_write(const char *path, const char *buf, size_t size,
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
 	fread(&write_inode,sizeof(struct neo_inode),1,fp);
 
-	syslog(LOG_INFO,"write inode %d",ino);
-	syslog(LOG_INFO,"write offset %ld",offset);
-	syslog(LOG_INFO,"write size %ld",size);
-
 	start = write_inode.i_blocks;
 	end = SIZE_TO_BLKCNT(offset + size);
-	block = (void *)malloc(BLOCK_SIZE);
-	iblock = (void *)malloc(BLOCK_SIZE);
 	if ((offset + size) > write_inode.i_size){
 		write_inode.i_size = offset + size;
 		if (end > start){

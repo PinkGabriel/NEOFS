@@ -156,7 +156,7 @@ void print_i_block(inode_nr ino)
 	for (i = 0; i < 12; i ++)
 		printf("i block [%d] is %d\n",i,inode.i_block[i]);
 	for (i = 0; i < inode.i_blocks; i ++){
-		printf("i block [%d] is %d\n",i,(i_block_to_addr(i,inode.i_block) / 4096));
+		printf("i block [%d] is %ld\n",i,(i_block_to_addr(i,inode.i_block) / 4096));
 	}
 }
 
