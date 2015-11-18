@@ -267,6 +267,7 @@ static int neo_mkdir(const char *path, mode_t mode)
 	return 0;
 }
 
+/*
 static int neo_getattr(const char *path, struct stat *stbuf)
 {
 	int res = 0;
@@ -286,8 +287,8 @@ static int neo_getattr(const char *path, struct stat *stbuf)
 
 	return res;
 }
+*/
 
-/*
 static int neo_getattr(const char *path, struct stat *stbuf)
 {
 	struct neo_inode inode;
@@ -307,6 +308,10 @@ static int neo_getattr(const char *path, struct stat *stbuf)
 		stbuf->st_mode = S_IFDIR | 0777;
 	stbuf->st_ino = ino;
 	//syslog(LOG_INFO,"getattr inode %lu",stbuf->st_ino);
+	if (ino == 1)
+		stbuf->st_nlink = 2;
+	else
+		stbuf->st_nlink = 1;
 	stbuf->st_uid = inode.i_uid;
 	stbuf->st_gid = inode.i_gid; 
 	stbuf->st_size = inode.i_size;
@@ -315,10 +320,10 @@ static int neo_getattr(const char *path, struct stat *stbuf)
 	stbuf->st_atime = inode.i_atime;
 	stbuf->st_mtime = inode.i_mtime;
 	//syslog(LOG_INFO,"getattr uid %d",inode.i_uid);
+
 	return 0;
 
 }
-*/
 
 static int neo_open(const char *path, struct fuse_file_info *fi)
 {
@@ -413,9 +418,9 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			st.st_ino = cur->inode;
 			//syslog(LOG_INFO,"readdir st inode %lu",st.st_ino);
 			if(cur->file_type == 1)
-				st.st_mode = S_IFREG | 0777;
+				st.st_mode = S_IFREG | 0644;
 			else
-				st.st_mode = S_IFDIR | 0777;
+				st.st_mode = S_IFDIR | 0644;
 
 			//syslog(LOG_INFO,"readdir_name %s",fname);
 			//if (filler(buf, cur->name, &st, 0))
@@ -450,9 +455,9 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				st.st_ino = cur->inode;
 				//st.st_mode = cur->file_type;
 				if(cur->file_type == 1)
-					st.st_mode = S_IFREG | 0777;
+					st.st_mode = S_IFREG | 0644;
 				else
-					st.st_mode = S_IFDIR | 0777;
+					st.st_mode = S_IFDIR | 0644;
 				//if (filler(buf, cur->name, &st, 0))
 				//	break;
 				filler(buf, fname, &st, 0);
@@ -750,13 +755,17 @@ static int neo_chown(const char *path, uid_t uid, gid_t gid)
 
 static int neo_statfs(const char *path, struct statvfs *stbuf)
 {
-/*
-	int res;
-
-	res = statvfs(path, stbuf);
-	if (res == -1)
-		return -errno;
-*/
+	stbuf->f_bsize = BLOCK_SIZE;				/* file system block size */
+	//stbuf->f_frsize;					/* fragment size */
+	stbuf->f_blocks = neo_sb_info.s_blocks_count;   	/* size of fs in f_frsize units */
+	stbuf->f_bfree = neo_sb_info.s_free_blocks_count;	/* # free blocks */
+	stbuf->f_bavail = neo_sb_info.s_free_blocks_count;	/* # free blocks for non-root */
+	stbuf->f_files = neo_sb_info.s_inodes_count;		/* # inodes */
+	stbuf->f_ffree = neo_sb_info.s_free_inodes_count;	/* # free inodes */
+	stbuf->f_favail = neo_sb_info.s_free_inodes_count;	/* # free inodes for non-root */
+	//stbuf->f_fsid;					/* file system ID */
+	//stbuf->f_flag;					/* mount flags */
+	stbuf->f_namemax = MAX_FILE_NAME;			/* maximum filename length */
 	return 0;
 }
 
