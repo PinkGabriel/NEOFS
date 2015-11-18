@@ -97,48 +97,6 @@ static int neo_link(const char *from, const char *to)
 	return 0;
 }
 
-static int neo_chmod(const char *path, mode_t mode)
-{
-	int res;
-
-	res = chmod(path, mode);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int neo_chown(const char *path, uid_t uid, gid_t gid)
-{
-	int res;
-
-	res = lchown(path, uid, gid);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int neo_statfs(const char *path, struct statvfs *stbuf)
-{
-	int res;
-
-	res = statvfs(path, stbuf);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int neo_fsync(const char *path, int isdatasync,
-		     struct fuse_file_info *fi)
-{
-	(void) path;
-	(void) isdatasync;
-	(void) fi;
-	return 0;
-}
-
 */
 
 #ifdef HAVE_UTIMENSAT
@@ -311,6 +269,27 @@ static int neo_mkdir(const char *path, mode_t mode)
 
 static int neo_getattr(const char *path, struct stat *stbuf)
 {
+	int res = 0;
+	char *hello_str = "Hello World!\n";
+	char *hello_path = "/hello";
+
+	memset(stbuf, 0, sizeof(struct stat));
+	if (strcmp(path, "/") == 0) {
+		stbuf->st_mode = S_IFDIR | 0755;
+		stbuf->st_nlink = 2;
+	} else if (strcmp(path, hello_path) == 0) {
+		stbuf->st_mode = S_IFREG | 0444;
+		stbuf->st_nlink = 1;
+		stbuf->st_size = strlen(hello_str);
+	} else
+		res = -ENOENT;
+
+	return res;
+}
+
+/*
+static int neo_getattr(const char *path, struct stat *stbuf)
+{
 	struct neo_inode inode;
 	char *vpath;
 	inode_nr ino;
@@ -321,10 +300,11 @@ static int neo_getattr(const char *path, struct stat *stbuf)
 		return -errno;
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
 	fread(&inode,sizeof(struct neo_inode),1,fp);
+	memset(stbuf, 0, sizeof(struct stat));
 	if(inode.i_mode == 1)
-		stbuf->st_mode = S_IFREG | 0644;
+		stbuf->st_mode = S_IFREG | 0777;
 	else
-		stbuf->st_mode = S_IFDIR | 0644;
+		stbuf->st_mode = S_IFDIR | 0777;
 	stbuf->st_ino = ino;
 	//syslog(LOG_INFO,"getattr inode %lu",stbuf->st_ino);
 	stbuf->st_uid = inode.i_uid;
@@ -337,16 +317,8 @@ static int neo_getattr(const char *path, struct stat *stbuf)
 	//syslog(LOG_INFO,"getattr uid %d",inode.i_uid);
 	return 0;
 
-/*
-	int res;
-
-	res = lstat(path, stbuf);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-*/
 }
+*/
 
 static int neo_open(const char *path, struct fuse_file_info *fi)
 {
@@ -441,9 +413,9 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			st.st_ino = cur->inode;
 			//syslog(LOG_INFO,"readdir st inode %lu",st.st_ino);
 			if(cur->file_type == 1)
-				st.st_mode = S_IFREG | 0644;
+				st.st_mode = S_IFREG | 0777;
 			else
-				st.st_mode = S_IFDIR | 0644;
+				st.st_mode = S_IFDIR | 0777;
 
 			//syslog(LOG_INFO,"readdir_name %s",fname);
 			//if (filler(buf, cur->name, &st, 0))
@@ -476,7 +448,11 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				memset(fname,0,MAX_FILE_NAME);
 				strncpy(fname,cur->name,cur->name_len);
 				st.st_ino = cur->inode;
-				st.st_mode = cur->file_type;
+				//st.st_mode = cur->file_type;
+				if(cur->file_type == 1)
+					st.st_mode = S_IFREG | 0777;
+				else
+					st.st_mode = S_IFDIR | 0777;
 				//if (filler(buf, cur->name, &st, 0))
 				//	break;
 				filler(buf, fname, &st, 0);
@@ -762,6 +738,39 @@ static int neo_access(const char *path, int mask)
 	return 0;
 }
 
+static int neo_chmod(const char *path, mode_t mode)
+{
+	return 0;
+}
+
+static int neo_chown(const char *path, uid_t uid, gid_t gid)
+{
+	return 0;
+}
+
+static int neo_statfs(const char *path, struct statvfs *stbuf)
+{
+/*
+	int res;
+
+	res = statvfs(path, stbuf);
+	if (res == -1)
+		return -errno;
+*/
+	return 0;
+}
+
+static int neo_fsync(const char *path, int isdatasync,
+		     struct fuse_file_info *fi)
+{
+/*
+	(void) path;
+	(void) isdatasync;
+	(void) fi;
+*/
+	return 0;
+}
+
 void neo_destroy(void *p)
 {
 	/*write sb and gdt to main copy and backups*/
@@ -789,18 +798,18 @@ static struct fuse_operations neo_oper = {
 	.write		= neo_write,
 	.truncate	= neo_truncate,
 	.access		= neo_access,
+	.chmod		= neo_chmod,
+	.chown		= neo_chown,
+	.statfs		= neo_statfs,
+	.fsync		= neo_fsync,
 /*
 	.readlink	= neo_readlink,
 	.symlink	= neo_symlink,
 	.rename		= neo_rename,
 	.link		= neo_link,
-	.chmod		= neo_chmod,
-	.chown		= neo_chown,
 #ifdef HAVE_UTIMENSAT
 	.utimens	= neo_utimens,
 #endif
-	.statfs		= neo_statfs,
-	.fsync		= neo_fsync,
 #ifdef HAVE_POSIX_FALLOCATE
 	.fallocate	= neo_fallocate,
 #endif
