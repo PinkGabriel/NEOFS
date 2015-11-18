@@ -305,7 +305,6 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 	true_prev_len = TRUE_LEN(prev.name_len);
 	true_cur_len = TRUE_LEN(del.name_len);
 
-	printf("del rec_len: %d,info[1] : %d\n",del.rec_len,info[1]);
  /*
 	printf("info[0] is %d\n",info[0]);
 	printf("info[1] is %d\n",info[1]);
@@ -872,8 +871,8 @@ void free_block(block_nr blk)
 		fread(bbcache.bbitmap,1,BLOCK_SIZE,fp);
 		bbcache.groupnr = bgnr;
 	}
-	neo_sb_info.s_free_blocks_count --;
-	neo_gdt[bgnr].bg_free_blocks_count --;
+	neo_sb_info.s_free_blocks_count ++;
+	neo_gdt[bgnr].bg_free_blocks_count ++;
 	write_sb_gdt_main(bgnr);
 	bbcache.bbitmap[l] -= (c >> r);
 }

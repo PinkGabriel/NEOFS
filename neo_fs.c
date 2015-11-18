@@ -44,23 +44,14 @@
 
 /*global variable*/
 FILE *fp = NULL;
+char *diskimg = NULL;
 struct neo_super_block neo_sb_info;
 struct neo_group_desc *neo_gdt;
 struct block_bitmap_cache bbcache;
 struct inode_bitmap_cache ibcache;
 __u16 file_open_list[MAX_OPEN_COUNT];
 
-static int neo_access(const char *path, int mask)
-{
-	int res;
-
-	res = access(path, mask);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
+/*
 static int neo_readlink(const char *path, char *buf, size_t size)
 {
 	int res;
@@ -128,31 +119,6 @@ static int neo_chown(const char *path, uid_t uid, gid_t gid)
 	return 0;
 }
 
-static int neo_truncate(const char *path, off_t size)
-{
-	int res;
-
-	res = truncate(path, size);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-#ifdef HAVE_UTIMENSAT
-static int neo_utimens(const char *path, const struct timespec ts[2])
-{
-	int res;
-
-	/* don't use utime/utimes since they follow symlinks */
-	res = utimensat(0, path, ts, AT_SYMLINK_NOFOLLOW);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-#endif
-
 static int neo_statfs(const char *path, struct statvfs *stbuf)
 {
 	int res;
@@ -167,14 +133,27 @@ static int neo_statfs(const char *path, struct statvfs *stbuf)
 static int neo_fsync(const char *path, int isdatasync,
 		     struct fuse_file_info *fi)
 {
-	/* Just a stub.	 This method is optional and can safely be left
-	   unimplemented */
-
 	(void) path;
 	(void) isdatasync;
 	(void) fi;
 	return 0;
 }
+
+*/
+
+#ifdef HAVE_UTIMENSAT
+static int neo_utimens(const char *path, const struct timespec ts[2])
+{
+	int res;
+
+	/* don't use utime/utimes since they follow symlinks */
+	res = utimensat(0, path, ts, AT_SYMLINK_NOFOLLOW);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+#endif
 
 #ifdef HAVE_POSIX_FALLOCATE
 static int neo_fallocate(const char *path, int mode,
@@ -241,7 +220,8 @@ static int neo_removexattr(const char *path, const char *name)
 void *neo_init (struct fuse_conn_info *conn)
 {
 	int groupcnt;
-	if ((fp = fopen(DISKIMG,"rb+")) == NULL){
+	//if ((fp = fopen(DISKIMG,"rb+")) == NULL){
+	if ((fp = fopen(diskimg,"rb+")) == NULL){
 		printf("image file open failed\n");
 		exit(1);
 	}
@@ -603,8 +583,47 @@ static int neo_rmdir(const char *path)
 static int neo_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
-	//inode_nr ino = file_open_list[fi->fh];
-	return 0;
+	int i,j;
+
+
+	unsigned int start_blk;	/*写入的内容的起始和结束位置的块号和在块中的偏移*/
+	unsigned int start_r;
+	unsigned int end_blk;
+	unsigned int end_r;
+
+	struct neo_inode read_inode;
+	inode_nr ino = file_open_list[fi->fh];
+
+	fseek(fp,inode_to_addr(ino),SEEK_SET);
+	fread(&read_inode,sizeof(struct neo_inode),1,fp);
+
+	if (SIZE_TO_BLKCNT(offset + size) > read_inode.i_blocks){
+		return -ESPIPE;
+	}
+	start_blk = offset / BLOCK_SIZE;
+	start_r = offset % BLOCK_SIZE;
+	end_blk = SIZE_TO_BLKCNT(offset + size) - 1;
+	//end_blk = (offset + size - 1) / BLOCK_SIZE;
+	end_r = (offset + size) % BLOCK_SIZE;
+	if (end_r == 0)
+		end_r = BLOCK_SIZE;
+
+	if (start_blk == end_blk){
+		fseek(fp,(i_block_to_addr(start_blk,read_inode.i_block) + start_r),SEEK_SET);
+		fread(buf,size,1,fp);
+	}else {
+		fseek(fp,(i_block_to_addr(start_blk,read_inode.i_block) + start_r),SEEK_SET);
+		fread(buf,(BLOCK_SIZE - start_r),1,fp);
+		for (i = (start_blk + 1), j = 0; i <= (end_blk -1); i ++,j ++){
+			fseek(fp,i_block_to_addr(i,read_inode.i_block),SEEK_SET);
+			fread(buf + (BLOCK_SIZE - start_r) + (j * BLOCK_SIZE),BLOCK_SIZE,1,fp);
+		}
+		fseek(fp,i_block_to_addr(end_blk,read_inode.i_block),SEEK_SET);
+		fread(buf + (size - end_r),end_r,1,fp);
+	}
+
+	return size;
+
 /*
 	int fd;
 	int res;
@@ -657,8 +676,10 @@ static int neo_write(const char *path, const char *buf, size_t size,
 	}
 	start_blk = offset / BLOCK_SIZE;
 	start_r = offset % BLOCK_SIZE;
-	end_blk = (offset + size) / BLOCK_SIZE;
+	end_blk = SIZE_TO_BLKCNT(offset + size) - 1;
 	end_r = (offset + size) % BLOCK_SIZE;
+	if (end_r == 0)
+		end_r = BLOCK_SIZE;
 
 	if (start_blk == end_blk){
 		fseek(fp,(i_block_to_addr(start_blk,write_inode.i_block) + start_r),SEEK_SET);
@@ -671,6 +692,7 @@ static int neo_write(const char *path, const char *buf, size_t size,
 			fwrite(buf + (BLOCK_SIZE - start_r) + (j * BLOCK_SIZE),BLOCK_SIZE,1,fp);
 		}
 		fseek(fp,i_block_to_addr(end_blk,write_inode.i_block),SEEK_SET);
+		//fwrite(buf + (BLOCK_SIZE - start_r) + (j * BLOCK_SIZE),end_r,1,fp);
 		fwrite(buf + (size - end_r),end_r,1,fp);
 	}
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
@@ -694,7 +716,48 @@ static int neo_write(const char *path, const char *buf, size_t size,
 */
 }
 
+static int neo_truncate(const char *path, off_t size)
+{
+	block_nr blkcnt;
+	struct neo_inode inode;
+	char *vpath = strdup(path);
+	inode_nr ino = path_resolve(vpath);
+	blkcnt = SIZE_TO_BLKCNT(size);
+
+	fseek(fp,inode_to_addr(ino),SEEK_SET);
+	fread(&inode,sizeof(struct neo_inode),1,fp);
+
+	inode.i_size = size;
+	inode.i_blocks = blkcnt;
+	if (blkcnt > inode.i_blocks){
+		get_selected_blocks(inode.i_block,ino,inode.i_blocks,blkcnt - 1);
+	}
+	if (blkcnt < inode.i_blocks){
+		free_selected_blocks(inode.i_block,blkcnt,inode.i_blocks - 1);
+	}
+
+	fseek(fp,inode_to_addr(ino),SEEK_SET);
+	fwrite(&inode,sizeof(struct neo_inode),1,fp);
+
+	return 0;
+
+/*
+	int res;
+
+	res = truncate(path, size);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+*/
+}
+
 static int neo_flush(const char *path, struct fuse_file_info *fi)
+{
+	return 0;
+}
+
+static int neo_access(const char *path, int mask)
 {
 	return 0;
 }
@@ -703,8 +766,8 @@ void neo_destroy(void *p)
 {
 	/*write sb and gdt to main copy and backups*/
 	/*write bbtimap and ibitmap to the disk*/
-	printf("\nthis is the destroy function\n");
 	write_bitmap();
+	printf("\ndestroy functions complete.\n");
 }
 
 static struct fuse_operations neo_oper = {
@@ -724,15 +787,15 @@ static struct fuse_operations neo_oper = {
 	.rmdir		= neo_rmdir,
 	.read		= neo_read,
 	.write		= neo_write,
-/*
+	.truncate	= neo_truncate,
 	.access		= neo_access,
+/*
 	.readlink	= neo_readlink,
 	.symlink	= neo_symlink,
 	.rename		= neo_rename,
 	.link		= neo_link,
 	.chmod		= neo_chmod,
 	.chown		= neo_chown,
-	.truncate	= neo_truncate,
 #ifdef HAVE_UTIMENSAT
 	.utimens	= neo_utimens,
 #endif
@@ -752,5 +815,6 @@ static struct fuse_operations neo_oper = {
 
 int main(int argc, char *argv[])
 {
+	diskimg = strdup(argv[--argc]);
 	return fuse_main(argc, argv, &neo_oper, NULL);
 }

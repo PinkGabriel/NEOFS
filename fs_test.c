@@ -12,7 +12,7 @@ int main()
 	char *f;
 	f = (char *)malloc(33333333);
 	memset(f,'3',33333333);
-	fd = open("/tmp/fuse/wao1",O_RDWR);
+	fd = open("/tmp/fuse/neo33/wao3",O_RDWR);
 	write(fd,f,33333333);
 	return 0;
 }

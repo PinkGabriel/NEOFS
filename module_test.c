@@ -184,10 +184,10 @@ int main(int argc,char *argv[])
 
 	find = path_resolve("/neo3");
 	printf("last neo3 find inode : %d\n",find);
-	find = path_resolve("/wao1");
-	printf("last wao1 find inode : %d\n",find);
+	find = path_resolve("/wao333");
+	printf("last wao333 find inode : %d\n",find);
 	//write_bitmap();
-	print_i_block(2);
+	print_i_block(4);
 	return 0;
 }
 
