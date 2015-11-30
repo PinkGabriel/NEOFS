@@ -75,17 +75,6 @@ static int neo_symlink(const char *from, const char *to)
 	return 0;
 }
 
-static int neo_rename(const char *from, const char *to)
-{
-	int res;
-
-	res = rename(from, to);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
 static int neo_link(const char *from, const char *to)
 {
 	int res;
@@ -733,6 +722,17 @@ static int neo_truncate(const char *path, off_t size)
 */
 }
 
+static int neo_rename(const char *from, const char *to)
+{
+	int res;
+
+	res = rename(from, to);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
 static int neo_flush(const char *path, struct fuse_file_info *fi)
 {
 	return 0;
@@ -805,6 +805,7 @@ static struct fuse_operations neo_oper = {
 	.rmdir		= neo_rmdir,
 	.read		= neo_read,
 	.write		= neo_write,
+	.rename		= neo_rename,
 	.truncate	= neo_truncate,
 	.access		= neo_access,
 	.chmod		= neo_chmod,
@@ -814,7 +815,6 @@ static struct fuse_operations neo_oper = {
 /*
 	.readlink	= neo_readlink,
 	.symlink	= neo_symlink,
-	.rename		= neo_rename,
 	.link		= neo_link,
 #ifdef HAVE_UTIMENSAT
 	.utimens	= neo_utimens,
