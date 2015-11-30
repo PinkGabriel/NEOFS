@@ -303,9 +303,9 @@ static int neo_getattr(const char *path, struct stat *stbuf)
 	fread(&inode,sizeof(struct neo_inode),1,fp);
 	memset(stbuf, 0, sizeof(struct stat));
 	if(inode.i_mode == 1)
-		stbuf->st_mode = S_IFREG | 0777;
+		stbuf->st_mode = S_IFREG | 0644;
 	else
-		stbuf->st_mode = S_IFDIR | 0777;
+		stbuf->st_mode = S_IFDIR | 0644;
 	stbuf->st_ino = ino;
 	//syslog(LOG_INFO,"getattr inode %lu",stbuf->st_ino);
 	if (ino == 1)

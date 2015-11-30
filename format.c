@@ -113,7 +113,7 @@ int main(int argc,char *argv[])
 	neo_sb_info.s_blocks_count = blkcnt;
 	neo_sb_info.s_groups_count = groupcnt;
 	neo_sb_info.s_free_inodes_count = inocnt - 2;		/*0 is reserved,1 for root*/
-	neo_sb_info.s_free_blocks_count = blkcnt - groupcnt * 2;/*2 for two bitmaps*/
+	neo_sb_info.s_free_blocks_count = blkcnt - groupcnt * (2 + 256);/*2 for two bitmaps*/
 	neo_sb_info.s_log_block_size = LOG_BLOCK_SIZE;
 	neo_sb_info.s_blocks_per_group = BLOCKS_PER_GROUP;
 	neo_sb_info.s_inodes_per_group = BLOCKS_PER_GROUP / 4;
@@ -136,7 +136,7 @@ int main(int argc,char *argv[])
 		gd[i].bg_block_bitmap = (BLOCKS_PER_GROUP * i) + extraoff;
 		gd[i].bg_inode_bitmap = (BLOCKS_PER_GROUP * i) + extraoff + 1;
 		gd[i].bg_inode_table = (BLOCKS_PER_GROUP * i) + extraoff + 2;
-		gd[i].bg_free_blocks_count = BLOCKS_PER_GROUP - 2 - extraoff;	/*2 for bitmaps,extra for sb&gdt backups*/
+		gd[i].bg_free_blocks_count = BLOCKS_PER_GROUP - 2 - 256 - extraoff;	/*2 for bitmaps,extra for sb&gdt backups*/
 		gd[i].bg_free_inodes_count = BLOCKS_PER_GROUP / 4;
 		gd[i].bg_used_dirs_count = 0;
 		extraoff = 0;
@@ -149,7 +149,7 @@ int main(int argc,char *argv[])
 		gd[i].bg_block_bitmap = (BLOCKS_PER_GROUP * i) + extraoff;
 		gd[i].bg_inode_bitmap = (BLOCKS_PER_GROUP * i) + extraoff + 1;
 		gd[i].bg_inode_table = (BLOCKS_PER_GROUP * i) + extraoff + 2;
-		gd[i].bg_free_blocks_count = remainder - 2 - extraoff;
+		gd[i].bg_free_blocks_count = remainder - 2 - 256 - extraoff;
 		gd[i].bg_free_inodes_count = iremainder;
 		gd[i].bg_used_dirs_count = 0;
 	}
