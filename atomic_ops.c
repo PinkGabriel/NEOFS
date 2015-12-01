@@ -23,28 +23,28 @@ inode_nr path_resolve(char *path)
 		memset(tmp,0,MAX_FILE_NAME);
 		if ((length = (pos - path)) > 255){
 			errno = ENAMETOOLONG;
-			return 0;
+			return NR_ERROR;
 		}
 		strncpy(tmp,path,pos - path);
 		//syslog(LOG_INFO,"path resolve while %s",tmp);
 		parent = search_dentry(parent,tmp);
 		//syslog(LOG_INFO,"path resolve while %d",parent);
 		//printf("%s\n",tmp);
-		if (parent == 0){
+		if (parent == NR_ERROR){
 			errno = ENOENT;
-			return 0;
+			return NR_ERROR;
 		}
 		path = ++pos;
 	}
 	//printf("%s\n",path);
 	//syslog(LOG_INFO,"path resolve last %d",parent);
 	//syslog(LOG_INFO,"path resolve last %s",path);
-	if ((res = search_dentry(parent,path)) != 0){
+	if ((res = search_dentry(parent,path)) != NR_ERROR){
 		//syslog(LOG_INFO,"path resolve res %u",res);
 		return res;
 	}else {
 		errno = ENOENT;
-		return 0;
+		return NR_ERROR;
 	}
 }
 
@@ -62,7 +62,7 @@ inode_nr search_dentry(inode_nr ino, char *name)
 	fread(&dirinode,neo_sb_info.s_inode_size,1,fp);
 	//print_inode(dirinode);
 	if (dirinode.i_blocks == 0)
-		return 0;
+		return NR_ERROR;
 	blkcnt = dirinode.i_blocks;
 	if (blkcnt <= 12)
 		n = blkcnt;
@@ -88,7 +88,7 @@ inode_nr search_dentry(inode_nr ino, char *name)
 		}
 		free(p);
 	}
-	return 0;
+	return NR_ERROR;
 }
 
 int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)

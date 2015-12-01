@@ -205,8 +205,12 @@ static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
 		parent_ino = 1;
 	else
 		parent_ino = path_resolve(parent_path);
-	if (search_dentry(parent_ino,name))		/*文件已存在*/
+	if (parent_ino == NR_ERROR) {
+		return -errno;
+	}
+	if (search_dentry(parent_ino,name) != NR_ERROR) {/*文件已存在*/
 		return -EEXIST;
+	}
 	if ((neo_sb_info.s_free_inodes_count > 1) && (neo_sb_info.s_free_blocks_count > 1))
 		ino = get_inode(parent_ino,1);		/*按照普通文件分配一个inode*/
 	else
@@ -246,8 +250,12 @@ static int neo_mkdir(const char *path, mode_t mode)
 		parent_ino = 1;
 	else
 		parent_ino = path_resolve(parent_path);
-	if (search_dentry(parent_ino,name))		/*文件已存在*/
+	if (parent_ino == NR_ERROR) {
+		return -errno;
+	}
+	if (search_dentry(parent_ino,name) != NR_ERROR) {/*文件已存在*/
 		return -EEXIST;
+	}
 	if ((neo_sb_info.s_free_inodes_count > 1) && (neo_sb_info.s_free_blocks_count > 1))
 		ino = get_inode(parent_ino,2);		/*按照普通文件分配一个inode*/
 	else
@@ -286,8 +294,9 @@ static int neo_getattr(const char *path, struct stat *stbuf)
 	vpath = strdup(path);
 	ino = path_resolve(vpath);
 	//syslog(LOG_INFO,"getattr path %s",vpath);
-	if (ino == 0)
+	if (ino == NR_ERROR) {
 		return -errno;
+	}
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
 	fread(&inode,sizeof(struct neo_inode),1,fp);
 	memset(stbuf, 0, sizeof(struct stat));
@@ -320,8 +329,9 @@ static int neo_open(const char *path, struct fuse_file_info *fi)
 	char *vpath = strdup(path);
 	inode_nr ino = path_resolve(vpath);
 	//syslog(LOG_INFO,"open path %s",vpath);
-	if (ino == 0)
+	if (ino == NR_ERROR) {
 		return -errno;
+	}
 	for (i = 0; i < MAX_OPEN_COUNT; i++){
 		if (file_open_list[i] == 0)
 			break;
@@ -349,8 +359,9 @@ static int neo_opendir (const char *path, struct fuse_file_info *fi)
 	char *vpath = strdup(path);
 	//syslog(LOG_INFO,"opendir path %s",vpath);
 	inode_nr ino = path_resolve(vpath);
-	if (ino == 0)
+	if (ino == NR_ERROR) {
 		return -errno;
+	}
 	for (i = 0; i < MAX_OPEN_COUNT; i++){
 		if (file_open_list[i] == 0)
 			break;
@@ -514,9 +525,13 @@ static int neo_unlink(const char *path)
 		parent_ino = 1;
 	else
 		parent_ino = path_resolve(parent_path);
+	if (parent_ino == NR_ERROR) {
+		return -errno;
+	}
 	ino = search_dentry(parent_ino,name);
-	if (ino == 0)					/*文件不存在*/
+	if (ino == NR_ERROR) {					/*文件不存在*/
 		return -ENOENT;
+	}
 	//syslog(LOG_INFO,"unlink parent_ino %d",ino);
 	//syslog(LOG_INFO,"unlink ino %d",ino);
 	//syslog(LOG_INFO,"unlink name %s",name);
@@ -541,8 +556,11 @@ static int neo_rmdir(const char *path)
 		parent_ino = 1;
 	else
 		parent_ino = path_resolve(parent_path);
+	if (parent_ino == NR_ERROR) {
+		return -errno;
+	}
 	ino = search_dentry(parent_ino,name);
-	if (ino == 0)					/*文件不存在*/
+	if (ino == NR_ERROR)					/*文件不存在*/
 		return -ENOENT;
 	if (free_inode(ino) == -1)				/*按照普通文件分配一个inode*/
 		return -errno;
@@ -692,6 +710,9 @@ static int neo_truncate(const char *path, off_t size)
 	struct neo_inode inode;
 	char *vpath = strdup(path);
 	inode_nr ino = path_resolve(vpath);
+	if (ino == NR_ERROR) {
+		return -errno;
+	}
 	blkcnt = SIZE_TO_BLKCNT(size);
 
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
@@ -710,26 +731,99 @@ static int neo_truncate(const char *path, off_t size)
 	fwrite(&inode,sizeof(struct neo_inode),1,fp);
 
 	return 0;
-
-/*
-	int res;
-
-	res = truncate(path, size);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-*/
 }
 
 static int neo_rename(const char *from, const char *to)
 {
-	int res;
-
-	res = rename(from, to);
-	if (res == -1)
+	if (strcmp(from,to) == 0) {
+		return 0;
+	}
+	struct neo_inode pfinode;
+	struct neo_inode finode;
+	struct neo_inode ptinode;
+	struct neo_inode tinode;
+	inode_nr parent_fino;
+	inode_nr fino;
+	inode_nr parent_tino;
+	inode_nr tino;
+	char *parent_fpath = strdup(from);
+	char *parent_tpath = strdup(to);
+	char *fname = strrchr(parent_fpath,'/');
+	char *tname = strrchr(parent_tpath,'/');
+	*fname = '\0';
+	fname ++;
+	*tname = '\0';
+	tname ++;
+	if (strlen(fname) > 255) {	/*from file name too long*/
+		return -ENAMETOOLONG;
+	}
+	if (strlen(tname) > 255) {	/*to file name too long*/
+		return -ENAMETOOLONG;
+	}
+	
+	/*deal from file*/
+	if (*parent_fpath == '\0') {
+		parent_fino = 1;
+	} else {
+		parent_fino = path_resolve(parent_fpath);
+	}
+	if (parent_fino == NR_ERROR) {
 		return -errno;
+	}
+	fino = search_dentry(parent_fino,fname);
+	if (fino == NR_ERROR) {		/*from file not exist*/
+		return -ENOENT;
+	}
 
+	/*deal to file*/
+	if (*parent_tpath == '\0') {
+		parent_tino = 1;
+	} else {
+		parent_tino = path_resolve(parent_tpath);
+	}
+	if (parent_tino == NR_ERROR) {	/*to file's parent dir not exist*/
+		return -errno;
+	}
+	tino = search_dentry(parent_tino,tname);
+
+	/*read inodes needed*/
+	fseek(fp,inode_to_addr(parent_fino),SEEK_SET);
+	fread(&pfinode,sizeof(struct neo_inode),1,fp);	/*get from file parent's inode*/
+
+	fseek(fp,inode_to_addr(fino),SEEK_SET);
+	fread(&finode,sizeof(struct neo_inode),1,fp);	/*get from file inode*/
+	if (finode.i_mode == 2) {			/*from file can't be to file's ancestor dir*/
+		if (strstr(to,from) == to) {
+			return -EINVAL;
+		}
+	}
+
+	fseek(fp,inode_to_addr(parent_tino),SEEK_SET);
+	fread(&ptinode,sizeof(struct neo_inode),1,fp);	/*get to file parent's inode*/
+
+	if (tino != NR_ERROR) {
+		fseek(fp,inode_to_addr(tino),SEEK_SET);	/*get to file's inode*/
+		fread(&tinode,sizeof(struct neo_inode),1,fp);
+		if (finode.i_mode == 1 && tinode.i_mode == 2) {		/*from file is a reg file but to file is a dir*/
+			return -EISDIR;
+		}
+		if (finode.i_mode == 2 && tinode.i_mode == 1) {		/*from file is a dir file but to file is a reg*/
+			return -ENOTDIR;
+		}
+		if (tinode.i_mode == 2 && tinode.i_blocks != 0) {	/*to file is a dir and is not empty*/
+			return -ENOTEMPTY;
+		}
+
+		/*to file already exists*/
+		free_inode(tino);
+		delete_dentry(parent_tino,tname,tinode.i_mode);
+		delete_dentry(parent_fino,fname,finode.i_mode);
+		add_dentry(parent_tino,fino,tname,finode.i_mode);
+	} else {
+		/*to file not exists*/
+		delete_dentry(parent_fino,fname,finode.i_mode);
+		add_dentry(parent_tino,fino,tname,finode.i_mode);
+	}
 	return 0;
 }
 

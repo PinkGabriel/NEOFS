@@ -9,11 +9,10 @@
 #define BLOCK_SIZE (1024<<LOG_BLOCK_SIZE)
 #define LOG_BLOCK_SIZE 2
 #define FIRST_FREE_BLOCK 32	/*metadata used 256+4=260 blocks 260/8 = 32*/
-#define ROOT_ADDR 16512		/*root is node 1,ie,4blocks+128(inode 0 reserved) = 4*4096+128 = 16512*/
+#define ROOT_ADDR 16512		/*root is inode 1,ie,4blocks+128(inode 0 reserved) = 4*4096+128 = 16512*/
 #define DISKIMG "diskimg"
 #define MAX_OPEN_COUNT 256
-
-//#define bgid_to_bgaddr(bg) ()
+#define NR_ERROR 0xFFFFFFFF	/*inode or block number error,max of unsigned int*/
 
 typedef unsigned long	__u64;
 typedef unsigned int	__u32;
