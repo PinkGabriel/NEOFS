@@ -14,35 +14,28 @@ inode_nr path_resolve(char *path)
 	int length;
 	char *pos;
 	char tmp[MAX_FILE_NAME];
-	if (strcmp(path,"/") == 0)//root's inode is 1. 0 is reserved for judge
+	if (strcmp(path,"/") == 0) {	/*root's inode is 1. 0 is reserved for judge*/
 		return 1;
-	path ++;
+	}
+	path++;
 	parent = 1;
-	while ((pos = strchr(path,'/')) != NULL)
-	{
+	while ((pos = strchr(path,'/')) != NULL) {
 		memset(tmp,0,MAX_FILE_NAME);
-		if ((length = (pos - path)) > 255){
+		if ((length = (pos - path)) > 255) {
 			errno = ENAMETOOLONG;
 			return NR_ERROR;
 		}
 		strncpy(tmp,path,pos - path);
-		//syslog(LOG_INFO,"path resolve while %s",tmp);
 		parent = search_dentry(parent,tmp);
-		//syslog(LOG_INFO,"path resolve while %d",parent);
-		//printf("%s\n",tmp);
-		if (parent == NR_ERROR){
+		if (parent == NR_ERROR) {
 			errno = ENOENT;
 			return NR_ERROR;
 		}
 		path = ++pos;
 	}
-	//printf("%s\n",path);
-	//syslog(LOG_INFO,"path resolve last %d",parent);
-	//syslog(LOG_INFO,"path resolve last %s",path);
-	if ((res = search_dentry(parent,path)) != NR_ERROR){
-		//syslog(LOG_INFO,"path resolve res %u",res);
+	if ((res = search_dentry(parent,path)) != NR_ERROR) {
 		return res;
-	}else {
+	} else {
 		errno = ENOENT;
 		return NR_ERROR;
 	}
@@ -54,34 +47,35 @@ inode_nr search_dentry(inode_nr ino, char *name)
 	unsigned int info[4] = {0};
 	__u64 inoaddr;
 	__u64 blkaddr;
-	block_nr *p = NULL;
+	block_nr *p = NULL;	/*store indirect block number*/
 	struct neo_inode dirinode;
 	int i,n;
 	inoaddr = inode_to_addr(ino);
 	fseek(fp,inoaddr,SEEK_SET);
 	fread(&dirinode,neo_sb_info.s_inode_size,1,fp);
-	//print_inode(dirinode);
-	if (dirinode.i_blocks == 0)
+	if (dirinode.i_blocks == 0) {
 		return NR_ERROR;
-	blkcnt = dirinode.i_blocks;
-	if (blkcnt <= 12)
-		n = blkcnt;
-	else
-		n = 12;
-	//printf("blkcnt : %d",blkcnt);
-	for (i = 0; i < n; i++){
-		blkaddr = block_to_addr(dirinode.i_block[i]);
-		if (blk_search_dentry(blkaddr,name,info) == 0)
-			return info[0];
 	}
-	if (blkcnt > 12){//dir file's max blocks count is 13,block[12] for indirect addr.
+	blkcnt = dirinode.i_blocks;
+	if (blkcnt <= 12) {
+		n = blkcnt;
+	} else {
+		n = 12;
+	}
+	for (i = 0; i < n; i++) {
+		blkaddr = block_to_addr(dirinode.i_block[i]);
+		if (blk_search_dentry(blkaddr,name,info) == 0) {
+			return info[0];
+		}
+	}
+	if (blkcnt > 12) {	/*dir file's max blocks count is 13,block[12] for indirect addr.*/
 		n = blkcnt - 12;
-		p = (__u32 *)malloc(4 * n);	//4 = sizeof(__32)
+		p = (__u32 *)malloc(4 * n);	/*4 = sizeof(__32)*/
 		fseek(fp,block_to_addr(dirinode.i_block[12]),SEEK_SET);
 		fread(p,(4 * n),1,fp);
-		for (i = 0; i < n; i++){
+		for (i = 0; i < n; i++) {
 			blkaddr = block_to_addr(p[i]);
-			if (blk_search_dentry(blkaddr,name,info) == 0){
+			if (blk_search_dentry(blkaddr,name,info) == 0) {
 				free(p);
 				return info[0];
 			}
@@ -92,7 +86,7 @@ inode_nr search_dentry(inode_nr ino, char *name)
 }
 
 int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
-{/*已成功申请到inode，然后在父目录中添加目录项，成功返回0，失败返回-1*/
+{/*after get inode successfully,then add dentry in the parent dir,return 0 for success*/
 	int blkcnt;
 	int i,n;
 	__u32 *p = NULL;
@@ -103,149 +97,139 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 	struct neo_dir_entry dirent;
 
 	fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
-	fread(&parent,sizeof(struct neo_inode),1,fp);	/*读入父目录inode*/
+	fread(&parent,sizeof(struct neo_inode),1,fp);	/*read parent dir's inode*/
 
-	
 	blkcnt = parent.i_blocks;
-	if (blkcnt <= 12)
+	if (blkcnt <= 12) {
 		n = blkcnt;
-	else
+	} else {
 		n = 12;
-	//printf("blkcnt : %d",blkcnt);
-	/*首先，必须把所有目录项都检索一遍看是有重名*/
-	for (i = 0; i < n; i++){
+	}
+	/*first，check all dentries to ensure there's no same-name file*/
+	for (i = 0; i < n; i++) {
 		blkaddr = block_to_addr(parent.i_block[i]);
-		if (blk_search_dentry(blkaddr,name,info) == 0){
+		if (blk_search_dentry(blkaddr,name,info) == 0) {
 			printf("same name\n");
 			errno = EEXIST;
 			return -1;
 		}
 	}
-	if (blkcnt > 12){/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+	if (blkcnt > 12) {	/*dir file's max blocks count is 13,block[12] for indirect addr.*/
 		n = blkcnt - 12;
-		p = (__u32 *)malloc(4 * n);		/*4 = sizeof(__32)*/
+		p = (__u32 *)malloc(4 * n);	/*4 = sizeof(__32)*/
 		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
 		fread(p,(4 * n),1,fp);
-		for (i = 0; i < n; i++){
+		for (i = 0; i < n; i++) {
 			blkaddr = block_to_addr(p[i]);
-			if (blk_search_dentry(blkaddr,name,info) == 0){
+			if (blk_search_dentry(blkaddr,name,info) == 0) {
 				printf("same name\n");
 				errno = EEXIST;
 				return -1;
 			}
 		}
 	}
-	/*然后，查找空位来加入目录项*/
 
-	if (blkcnt <= 12)
+	/*then，find empty location to store the dentry in the existing blocks*/
+	if (blkcnt <= 12) {
 		n = blkcnt;
-	else
+	} else {
 		n = 12;
+	}
 	memset(dirent.name,0,MAX_FILE_NAME);
 	dirent.inode = ino;
 	dirent.name_len = strlen(name);
 	strcpy(dirent.name,name);
 	dirent.file_type = (__u8)i_mode;
-	//dirent.rec_len = (4 - dirent.name_len%4) + dirent.name_len + 8;
 	
 	if (parent.i_blocks == 0){
 		parent.i_block[0] = get_block(parent_ino);
 		parent.i_blocks += 1;
-		dirent.rec_len = BLOCK_SIZE;				/*第一项同时也是最后一项*/
+		dirent.rec_len = BLOCK_SIZE;			/*the first dentry and meanwhile the last dentry*/
 		fseek(fp,block_to_addr(parent.i_block[0]),SEEK_SET);
-		//fwrite(&dirent,((dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8),1,fp);
 		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
 
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
-		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
+		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
 
 		return 0;
 	}
 
-	for (i = 0; i < n; i++){
+	for (i = 0; i < n; i++) {
 		blkaddr = block_to_addr(parent.i_block[i]);
-		if (blk_search_empty_dentry(blkaddr,name,info) == 0){	/*找到空闲位置后根据info维护数据结构*/
+		if (blk_search_empty_dentry(blkaddr,name,info) == 0) {	/*find the empty location*/
 			write_dentry(blkaddr,info,dirent);
-
 			fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
-			fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
-
+			fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
 			return 0;
 		}
 	
 	}
-	if (blkcnt > 12){/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+	if (blkcnt > 12) {	/*dir file's max blocks count is 13,block[12] for indirect addr.*/
 		n = blkcnt - 12;
 		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
 		fread(p,(4 * n),1,fp);
-		for (i = 0; i < n; i++){
+		for (i = 0; i < n; i++) {
 			blkaddr = block_to_addr(p[i]);
-			if (blk_search_empty_dentry(blkaddr,name,info) == 0){
+			if (blk_search_empty_dentry(blkaddr,name,info) == 0) {
 				write_dentry(blkaddr,info,dirent);
-
 				fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
-				fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
-
+				fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
 				return 0;
 			}
 		}
 	}
-	/*如果仍未分配到，即现有block都满了，再申请一块*/
-	if (blkcnt < 12){
+
+	/*if still not allocated，ie,all the existing blocks are full，allocate one more*/
+	if (blkcnt < 12) {
 		parent.i_block[blkcnt] = get_block(parent_ino);
 		parent.i_blocks += 1;
-		dirent.rec_len = BLOCK_SIZE;		/*第一项同时也是最有一项*/
+		dirent.rec_len = BLOCK_SIZE;		/*the first dentry and meanwhile the last*/
 		fseek(fp,block_to_addr(parent.i_block[blkcnt]),SEEK_SET);
-		//fwrite(&dirent,((dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8),1,fp);
 		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
 
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
-		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
-
+		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
 		return 0;
-	}else if (blkcnt = 12){
+	} else if (blkcnt = 12) {
 		parent.i_block[12] = get_block(parent_ino);
 		tmp = get_block(parent_ino);
 		parent.i_blocks += 1;
 		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
 		fwrite(&tmp,4,1,fp);
-		dirent.rec_len = BLOCK_SIZE;		/*第一项同时也是最有一项*/
+		dirent.rec_len = BLOCK_SIZE;		/*the first dentry and meanwhile the last*/
 		fseek(fp,block_to_addr(tmp),SEEK_SET);
-		//fwrite(&dirent,((dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8),1,fp);
 		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
 
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
-		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
+		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
 
 		return 0;
-	}else if (blkcnt < 1036){			/*1036 = 4096/4 + 12，即目录文件的最大block数量*/
+	} else if (blkcnt < 1036) {	/*1036 = 4096/4 + 12，ie,dir file's max blocks count*/
 		tmp = get_block(parent_ino);
 		parent.i_blocks += 1;
 		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
 		fseek(fp,(blkcnt - 12) * 4,SEEK_CUR);
 		fwrite(&tmp,4,1,fp);
-		dirent.rec_len = BLOCK_SIZE;		/*第一项同时也是最有一项*/
+		dirent.rec_len = BLOCK_SIZE;		/*the first dentry and meanwhile the last*/
 		fseek(fp,block_to_addr(tmp),SEEK_SET);
-		//fwrite(&dirent,((dirent.name_len%4?(4 - dirent.name_len%4 + dirent.name_len):(dirent.name_len)) + 8),1,fp);
 		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
 
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
 
 		return 0;
-	}else{
+	} else {
 		errno = ENOSPC;
 		return -1;
 	}
 
 	free(p);
 	return 0;
-
 }
 
 int delete_dentry(inode_nr parent_ino,char * name,__u16 i_mode)
 {
-	/*删除目录项*/
+	/*delete dentry*/
 	int blkcnt;
 	int i,n;
 	__u32 *p = NULL;
@@ -256,28 +240,29 @@ int delete_dentry(inode_nr parent_ino,char * name,__u16 i_mode)
 	struct neo_dir_entry dirent;
 
 	fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
-	fread(&parent,sizeof(struct neo_inode),1,fp);	/*读入父目录inode*/
+	fread(&parent,sizeof(struct neo_inode),1,fp);	/*read parent dir's inode*/
 
 	blkcnt = parent.i_blocks;
-	if (blkcnt <= 12)
+	if (blkcnt <= 12) {
 		n = blkcnt;
-	else
+	} else {
 		n = 12;
-	for (i = 0; i < n; i++){
+	}
+	for (i = 0; i < n; i++) {
 		blkaddr = block_to_addr(parent.i_block[i]);
-		if (blk_search_dentry(blkaddr,name,info) == 0){
+		if (blk_search_dentry(blkaddr,name,info) == 0) {
 			delete_block_dentry(parent_ino,i,blkaddr,info);
 			return 0;
 		}
 	}
-	if (blkcnt > 12){/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+	if (blkcnt > 12) {/*dir file's max blocks count is 13,block[12] for indirect addr.*/
 		n = blkcnt - 12;
 		p = (__u32 *)malloc(4 * n);		/*4 = sizeof(__32)*/
 		fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
 		fread(p,(4 * n),1,fp);
-		for (i = 0; i < n; i++){
+		for (i = 0; i < n; i++) {
 			blkaddr = block_to_addr(p[i]);
-			if (blk_search_dentry(blkaddr,name,info) == 0){
+			if (blk_search_dentry(blkaddr,name,info) == 0) {
 				delete_block_dentry(parent_ino,(i + 12),blkaddr,info);
 				free(p);
 				return 0;
@@ -312,29 +297,29 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 	printf("info[3] is %d\n",info[3]);
 // */
 
-	if ((info[2] == info[3]) && ((info[1] + info[3]) == 4096)){			/*1.此目录项是此块中的最后一项*/
-		if (blknr == (parent.i_blocks - 1)){	/*释放的块为最后一块*/
-			if (blknr <= 11){
+	if ((info[2] == info[3]) && ((info[1] + info[3]) == 4096)) {	/*last dentry in this block*/
+		if (blknr == (parent.i_blocks - 1)) {	/*last block of this inode*/
+			if (blknr <= 11) {
 				free_block(parent.i_block[blknr]);
 				parent.i_block[blknr] = 0;
-			}else if (blknr == 12){
+			} else if (blknr == 12) {
 				fseek(fp,block_to_addr(parent.i_block[12]),SEEK_SET);
 				fread(&tmpnr,4,1,fp);
 				free_block(tmpnr);
 				free_block(parent.i_block[12]);
 				parent.i_block[12] = 0;
-			}else {
+			} else {
 				fseek(fp,(block_to_addr(parent.i_block[12]) + (blknr - 12) * 4),SEEK_SET);
 				fread(&tmpnr,4,1,fp);
 				free_block(tmpnr);
 			}
-		}else {					/*释放的块不是最后一块*/
-			if (blknr <= 11){
+		} else {				/*not the last block of this inode*/
+			if (blknr <= 11) {
 				free_block(parent.i_block[blknr]);
 				fseek(fp,(block_to_addr(parent.i_block[12]) + (parent.i_blocks - 1 - 12) * 4),SEEK_SET);
 				fread(&tmpnr,4,1,fp);
 				parent.i_block[blknr] = tmpnr;
-			}else {
+			} else {
 				fseek(fp,(block_to_addr(parent.i_block[12]) + (blknr - 12) * 4),SEEK_SET);
 				fread(&tmpnr,4,1,fp);
 				free_block(tmpnr);
@@ -347,17 +332,17 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 		parent.i_blocks --;
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 		fwrite(&parent,sizeof(struct neo_inode),1,fp);
-	}else if ((info[2] == info[3]) && (info[2] == 0)){	/*此目录项是第一个项,顶头*/
+	} else if ((info[2] == info[3]) && (info[2] == 0)) {	/*the first dentry of the block,zero offset*/
 		del.inode = 0;
 		fseek(fp,blkaddr,SEEK_SET);
 		fwrite(&del,8,1,fp);
-	}else if ((info[2] == info[3]) && (info[2] != 0)){	/*此目录项是第一个项,前是空白*/
+	} else if ((info[2] == info[3]) && (info[2] != 0)) {	/*the first dentry of the block,non-zero offset*/
 		fseek(fp,blkaddr,SEEK_SET);
 		fread(&blank,8,1,fp);
 		blank.rec_len += del.rec_len;
 		fseek(fp,blkaddr,SEEK_SET);
 		fwrite(&blank,8,1,fp);
-	}else if (prev.rec_len > true_prev_len){		/*此目录项不在开头,前是空白*/
+	} else if (prev.rec_len > true_prev_len) {		/*not the first dentry,after blank*/
 		prev.rec_len += del.rec_len;
 		fseek(fp,(blkaddr + info[2]),SEEK_SET);
 		fwrite(&prev,8,1,fp);
@@ -366,7 +351,7 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 		blank.rec_len += del.rec_len;
 		fseek(fp,(blkaddr + info[2] + true_prev_len),SEEK_SET);
 		fwrite(&blank,8,1,fp);
-	}else if (prev.rec_len == true_prev_len){		/*此目录项不在开头,前非空白*/
+	} else if (prev.rec_len == true_prev_len) {		/*not the first dentry,after dentry*/
 		prev.rec_len += del.rec_len;
 		fseek(fp,(blkaddr + info[2]),SEEK_SET);
 		fwrite(&prev,8,1,fp);

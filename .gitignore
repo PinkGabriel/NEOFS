@@ -1,6 +1,7 @@
 *.out
 *.o
 *.swp
+tags
 neo_fs
 fs_test
 format
