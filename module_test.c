@@ -162,6 +162,7 @@ void print_i_block(inode_nr ino)
 
 int main(int argc,char *argv[])
 {
+	struct neo_inode write_inode;
 	inode_nr find;
 	printf("this is a module test program\n\n");
 	init();
@@ -187,7 +188,10 @@ int main(int argc,char *argv[])
 	find = path_resolve("/wao333");
 	printf("last wao333 find inode : %d\n",find);
 	//write_bitmap();
-	print_i_block(2);
+	//print_i_block(2);
+	fseek(fp,16768,SEEK_SET);
+	fread(&write_inode,sizeof(struct neo_inode),1,fp);
+	printf("inode blocks : %u\n",write_inode.i_blocks);
 	return 0;
 }
 

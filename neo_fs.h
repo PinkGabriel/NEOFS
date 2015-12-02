@@ -5,6 +5,7 @@
 #define MAX_FILE_NAME 255
 #define MAX_FILE_SIZE 4294967296
 #define MAX_FS_SIZE 17179869184
+#define INODES_PER_GROUP 8192
 #define BLOCKS_PER_GROUP (BLOCK_SIZE * 8)
 #define BLOCK_SIZE (1024<<LOG_BLOCK_SIZE)
 #define LOG_BLOCK_SIZE 2
@@ -13,6 +14,13 @@
 #define DISKIMG "diskimg"
 #define MAX_OPEN_COUNT 256
 #define NR_ERROR 0xFFFFFFFF	/*inode or block number error,max of unsigned int*/
+
+/*direct index，1-indirect index，2-indirect index block number:0~11,12~1035,1036~1049611*/
+#define DIRECT_INDEX_END 11
+#define IN_INDEX_BGN 12
+#define IN_INDEX_END 1035
+#define ININ_INDEX_BGN 1036
+#define ININ_INDEX_END 1049611
 
 typedef unsigned long	__u64;
 typedef unsigned int	__u32;
