@@ -173,18 +173,15 @@ int main(int argc,char *argv[])
 		}
 	}
 
-
-
 	if (args[2] != NULL && (strcmp(args[2],"root") == 0)){
 		fseek(fp,ROOT_ADDR,SEEK_SET);
 		fread(&root,neo_sb_info.s_inode_size,1,fp);
 		print_inode(root);
 	}
 
-
-
 	free(gd);
 	free(debugtmp);
+	return 0;
 }
 
 

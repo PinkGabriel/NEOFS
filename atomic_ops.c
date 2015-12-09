@@ -7,6 +7,7 @@
 #include <time.h>
 #include <math.h>
 #include <syslog.h>
+#include<unistd.h>
 
 inode_nr path_resolve(char *path)
 {
@@ -44,17 +45,21 @@ inode_nr path_resolve(char *path)
 inode_nr search_dentry(inode_nr ino, char *name)
 {
 	unsigned int blkcnt;
+	/* info[0] is target's inode,info[1] is dentry's rec_len */
+	/* info[2] is prev dentry's offset in the block */
+	/* info[3] is current dentry's offset in the block */
 	unsigned int info[4] = {0};
+	inode_nr res = NR_ERROR;
 	__u64 inoaddr;
 	__u64 blkaddr;
-	block_nr *p = NULL;	/*store indirect block number*/
+	block_nr *p = NULL;			/* store indirect block number */
 	struct neo_inode dirinode;
 	int i,n;
 	inoaddr = inode_to_addr(ino);
 	fseek(fp,inoaddr,SEEK_SET);
 	fread(&dirinode,neo_sb_info.s_inode_size,1,fp);
 	if (dirinode.i_blocks == 0) {
-		return NR_ERROR;
+		goto sd_out;
 	}
 	blkcnt = dirinode.i_blocks;
 	if (blkcnt <= IN_INDEX_BGN) {
@@ -65,10 +70,11 @@ inode_nr search_dentry(inode_nr ino, char *name)
 	for (i = 0; i < n; i++) {
 		blkaddr = block_to_addr(dirinode.i_block[i]);
 		if (blk_search_dentry(blkaddr,name,info) == 0) {
-			return info[0];
+			res = info[0];
+			goto sd_out;
 		}
 	}
-	if (blkcnt > IN_INDEX_BGN) {	/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+	if (blkcnt > IN_INDEX_BGN) {		/*if blocks count >= 13,block[12] for indirect addr.*/
 		n = blkcnt - IN_INDEX_BGN;
 		p = (__u32 *)malloc(4 * n);	/*4 = sizeof(__32)*/
 		fseek(fp,block_to_addr(dirinode.i_block[IN_INDEX_BGN]),SEEK_SET);
@@ -76,13 +82,14 @@ inode_nr search_dentry(inode_nr ino, char *name)
 		for (i = 0; i < n; i++) {
 			blkaddr = block_to_addr(p[i]);
 			if (blk_search_dentry(blkaddr,name,info) == 0) {
-				free(p);
-				return info[0];
+				res = info[0];
+				goto sd_out;
 			}
 		}
-		free(p);
 	}
-	return NR_ERROR;
+sd_out:
+	free(p);
+	return res;
 }
 
 int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
@@ -111,7 +118,7 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 		if (blk_search_dentry(blkaddr,name,info) == 0) {
 			printf("same name\n");
 			errno = EEXIST;
-			return -1;
+			goto ad_err_out;
 		}
 	}
 	if (blkcnt > IN_INDEX_BGN) {	/*dir file's max blocks count is 13,block[12] for indirect addr.*/
@@ -124,7 +131,7 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 			if (blk_search_dentry(blkaddr,name,info) == 0) {
 				printf("same name\n");
 				errno = EEXIST;
-				return -1;
+				goto ad_err_out;
 			}
 		}
 	}
@@ -151,7 +158,7 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
 
-		return 0;
+		goto ad_out;
 	}
 
 	for (i = 0; i < n; i++) {
@@ -160,7 +167,7 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 			write_dentry(blkaddr,info,dirent);
 			fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 			fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
-			return 0;
+			goto ad_out;
 		}
 	
 	}
@@ -174,7 +181,7 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 				write_dentry(blkaddr,info,dirent);
 				fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 				fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
-				return 0;
+				goto ad_out;
 			}
 		}
 	}
@@ -189,8 +196,9 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
-		return 0;
-	} else if (blkcnt = IN_INDEX_BGN) {
+
+		goto ad_out;
+	} else if (blkcnt == IN_INDEX_BGN) {
 		parent.i_block[IN_INDEX_BGN] = get_block(parent_ino);
 		tmp = get_block(parent_ino);
 		parent.i_blocks += 1;
@@ -203,12 +211,11 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
 
-		return 0;
+		goto ad_out;
 	} else if (blkcnt < ININ_INDEX_BGN) {	/*1036 = 4096/4 + 12，ie,dir file's max blocks count*/
 		tmp = get_block(parent_ino);
 		parent.i_blocks += 1;
-		fseek(fp,block_to_addr(parent.i_block[IN_INDEX_BGN]),SEEK_SET);
-		fseek(fp,(blkcnt - IN_INDEX_BGN) * 4,SEEK_CUR);
+		fseek(fp,block_to_addr(parent.i_block[IN_INDEX_BGN]) + (blkcnt - IN_INDEX_BGN) * 4,SEEK_SET);
 		fwrite(&tmp,4,1,fp);
 		dirent.rec_len = BLOCK_SIZE;		/*the first dentry and meanwhile the last*/
 		fseek(fp,block_to_addr(tmp),SEEK_SET);
@@ -217,12 +224,15 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 		fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*写回父目录inode*/
 
-		return 0;
+		goto ad_out;
 	} else {
 		errno = ENOSPC;
-		return -1;
+		goto ad_err_out;
 	}
-
+ad_err_out:
+	free(p);
+	return -1;
+ad_out:
 	free(p);
 	return 0;
 }
@@ -235,9 +245,7 @@ int delete_dentry(inode_nr parent_ino,char * name,__u16 i_mode)
 	__u32 *p = NULL;
 	__u64 blkaddr;
 	unsigned int info[4] = {0};
-	unsigned int tmp;
 	struct neo_inode parent;
-	struct neo_dir_entry dirent;
 
 	fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 	fread(&parent,sizeof(struct neo_inode),1,fp);	/*read parent dir's inode*/
@@ -255,9 +263,9 @@ int delete_dentry(inode_nr parent_ino,char * name,__u16 i_mode)
 			return 0;
 		}
 	}
-	if (blkcnt > IN_INDEX_BGN) {/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+	if (blkcnt > IN_INDEX_BGN) {
 		n = blkcnt - IN_INDEX_BGN;
-		p = (__u32 *)malloc(4 * n);		/*4 = sizeof(__32)*/
+		p = (__u32 *)malloc(4 * n);
 		fseek(fp,block_to_addr(parent.i_block[IN_INDEX_BGN]),SEEK_SET);
 		fread(p,(4 * n),1,fp);
 		for (i = 0; i < n; i++) {
@@ -269,7 +277,9 @@ int delete_dentry(inode_nr parent_ino,char * name,__u16 i_mode)
 			}
 		}
 	}
-	return 0;
+	errno = ENOENT;
+	free(p);
+	return -1;
 }
 
 void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned int info[])
@@ -368,11 +378,13 @@ int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	unsigned int offset_cur = 0;		/*current dentry's offset*/
 	struct neo_dir_entry *cur;		/*current dentry*/
 	char cname[MAX_FILE_NAME] = {'\0'};
-	void *block;				/*only for gnu c，void * can do calculation only in gcc，not for ansi C*/
+	void *origin,*block;			/* origin for free,block for move pointer */
+						/*only for gnu c，void * can do calculation only in gcc，not for ansi C*/
 						/*block for pointer movement，then cur = block*/
 
-	block = (void *)malloc(BLOCK_SIZE);
-	cur = block;
+	origin = (void *)malloc(BLOCK_SIZE);
+	block = origin;
+	cur = origin;
 	fseek(fp,blkaddr,SEEK_SET);
 	fread(block,BLOCK_SIZE,1,fp);		/*read this block into memory*/
 
@@ -389,6 +401,7 @@ int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 			info[1] = cur->rec_len;
 			info[2] = offset_prev;
 			info[3] = offset_cur;
+			free(origin);
 			return 0;
 		}
  /*
@@ -403,6 +416,7 @@ int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 		block += cur->rec_len;
 		memset(cname,0,MAX_FILE_NAME);
 	} while ((offset_prev + cur->rec_len) != 4096 );
+	free(origin);
 	return -1;
 }
 
@@ -413,14 +427,14 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	unsigned int offset_cur = 0;		/*current dentry's offset*/
 	unsigned int order = 0;		
 	struct neo_dir_entry *cur;		/*current dentry*/
-	struct neo_dir_entry *blank;		/*blank after the current dentry*/
 	unsigned char need_len;
 	unsigned short true_len;
-	void *block;				/*same with blk_search_dentry*/
+	void *origin,*block;			/*same with blk_search_dentry*/
 	need_len = TRUE_LEN(strlen(name)) + 8;
 
-	block = (void *)malloc(BLOCK_SIZE);
-	cur = block;
+	origin = (void *)malloc(BLOCK_SIZE);
+	block = origin;
+	cur = origin;
 	fseek(fp,blkaddr,SEEK_SET);
 	fread(block,BLOCK_SIZE,1,fp);		/*read the block into memory*/
 
@@ -430,6 +444,7 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 			info[1] = cur->rec_len;
 			info[2] = offset_prev;
 			info[3] = offset_cur;
+			free(origin);
 			return 0;
 		} else {
 			offset_prev += cur->rec_len;
@@ -446,6 +461,7 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 			info[1] = cur->rec_len;
 			info[2] = offset_prev;
 			info[3] = offset_cur;
+			free(origin);
 			return 0;
 		}
  /*
@@ -458,6 +474,7 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 		offset_cur += cur->rec_len;
 		block += cur->rec_len;
 	} while ((offset_prev + cur->rec_len) != 4096 );
+	free(origin);
 	return -1;
 }
 
@@ -520,7 +537,7 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 	unsigned char c;
 	unsigned int aver_free_inodes,aver_free_blocks;
 	inode_nr res;
-	int groupcnt = neo_sb_info.s_groups_count;
+	__u32 groupcnt = neo_sb_info.s_groups_count;
 	int bgnr = ino / INODES_PER_GROUP;
 	int prev,tag = 0;
 	if (i_mode == 1) {				/*get inode for reg file*/
@@ -586,6 +603,7 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 			}
 		}
 	}
+	return NR_ERROR;
 }
 
 void init_inode(inode_nr res,__u16 i_mode)
@@ -609,8 +627,9 @@ void init_inode(inode_nr res,__u16 i_mode)
 block_nr get_block(inode_nr ino)
 {/*ino for allocation scheme，try to allocate block in ino's group*/
 	int i,j;
+	block_nr res;
 	unsigned char c;
-	int groupcnt = neo_sb_info.s_groups_count;
+	__u32 groupcnt = neo_sb_info.s_groups_count;
 	bg_nr bgnr = ino / INODES_PER_GROUP;
 	for (i = 0; i < groupcnt; i++) {
 		if (neo_gdt[bgnr].bg_free_blocks_count > 0) {
@@ -635,12 +654,14 @@ block_nr get_block(inode_nr ino)
 			for (j = 0, c = 0x80; j < 8; j++){
 				if ((bbcache.bbitmap[i]&c) == 0){
 					bbcache.bbitmap[i] += c;
-					return (BLOCKS_PER_GROUP * bgnr + 8 * i + j);
+					res = BLOCKS_PER_GROUP * bgnr + 8 * i + j;
+					return res;
 				}
 				c = c >> 1;
 			}
 		}
 	}
+	return NR_ERROR;
 }
 
 int free_inode(inode_nr ino)
@@ -694,7 +715,7 @@ void get_selected_blocks(__u32 *i_block,inode_nr ino,__u32 start,__u32 end)
 		}
 	} else if (end <= IN_INDEX_END) {
 		if (start <= IN_INDEX_BGN) {
-			i_block[IN_INDEX_BGN] = get_block(ino);
+			i_block[12] = get_block(ino);
 		}
 		for (i = start; i <= DIRECT_INDEX_END; i++) {
 			i_block[i] = get_block(ino);
@@ -706,10 +727,17 @@ void get_selected_blocks(__u32 *i_block,inode_nr ino,__u32 start,__u32 end)
 			fwrite(&blknr,4,1,fp);
 		}
 	} else {
+		if (start <= IN_INDEX_BGN) {
+			i_block[12] = get_block(ino);
+		}
+		for (i = start; i <= DIRECT_INDEX_END; i++) {
+			i_block[i] = get_block(ino);
+		}
+
 		if (start <= ININ_INDEX_BGN) {
 			i_block[13] = get_block(ino);
 		}
-		for (i = start; i <= IN_INDEX_END; i++) {
+		for (i = ((start > IN_INDEX_BGN) ? start : IN_INDEX_BGN); i <= IN_INDEX_END; i++) {
 			blknr = get_block(ino);
 			fseek(fp,(block_to_addr(i_block[IN_INDEX_BGN]) + (i - IN_INDEX_BGN) * 4),SEEK_SET);
 			fwrite(&blknr,4,1,fp);
@@ -823,6 +851,8 @@ void free_selected_blocks(__u32 *i_block,__u32 start,__u32 end)
 			free_block(i_block[13]);
 		}
 	}
+	free(block);
+	free(sub_block);
 }
 
 void free_block(block_nr blk)
@@ -873,14 +903,14 @@ void write_bitmap()
 void print_sb(struct neo_super_block neo_sb_info)
 {
 	printf("super block:\n");
-	printf("sb inodes count: %d\n",neo_sb_info.s_inodes_count);
-	printf("sb blocks count: %d\n",neo_sb_info.s_blocks_count);
-	printf("sb groups count: %d\n",neo_sb_info.s_groups_count);
-	printf("sb free inodes count: %d\n",neo_sb_info.s_free_inodes_count);
-	printf("sb free blocks count: %d\n",neo_sb_info.s_free_blocks_count);
-	printf("sb log block size: %d\n",neo_sb_info.s_log_block_size);
-	printf("sb blocks/group: %d\n",neo_sb_info.s_blocks_per_group);
-	printf("sb inodes/group: %d\n",neo_sb_info.s_inodes_per_group);
+	printf("sb inodes count: %u\n",neo_sb_info.s_inodes_count);
+	printf("sb blocks count: %u\n",neo_sb_info.s_blocks_count);
+	printf("sb groups count: %u\n",neo_sb_info.s_groups_count);
+	printf("sb free inodes count: %u\n",neo_sb_info.s_free_inodes_count);
+	printf("sb free blocks count: %u\n",neo_sb_info.s_free_blocks_count);
+	printf("sb log block size: %u\n",neo_sb_info.s_log_block_size);
+	printf("sb blocks/group: %u\n",neo_sb_info.s_blocks_per_group);
+	printf("sb inodes/group: %u\n",neo_sb_info.s_inodes_per_group);
 	printf("sb magic#: %d\n",neo_sb_info.s_magic);
 	printf("sb inode size: %d\n\n",neo_sb_info.s_inode_size);
 }
@@ -929,8 +959,8 @@ void print_inode(struct neo_inode ino)
 
 __u64 inode_to_addr(inode_nr ino)
 {
-	int groupnr,r;
-	int offset = BLOCK_SIZE * 2;			/*block and inode's bitmaps*/
+	__u32 groupnr,r;
+	__u64 offset = BLOCK_SIZE * 2;			/*block and inode's bitmaps*/
 	groupnr = ino / neo_sb_info.s_inodes_per_group;
 	r = ino % neo_sb_info.s_inodes_per_group;
 	if(is_powerof_357(groupnr))
@@ -963,7 +993,8 @@ __u64 i_block_to_addr(block_nr blknr,block_nr i_block[])
 
 __u64 inline block_to_addr(block_nr blk)
 {
-	return (blk * 4096);
+	__u64 res = blk * 4096;
+	return res;
 }
 
 int is_powerof_357(int i)
