@@ -162,12 +162,11 @@ static int neo_removexattr(const char *path, const char *name)
 }
 #endif /* HAVE_SETXATTR */
 
-/*function implemented by user*/
+/*function implemented by Xue Jieyu*/
 
 void *neo_init (struct fuse_conn_info *conn)
 {
 	__u32 groupcnt;
-	//if ((fp = fopen(DISKIMG,"rb+")) == NULL){
 	if ((fp = fopen(diskimg,"rb+")) == NULL) {
 		printf("image file open failed\n");
 		exit(1);

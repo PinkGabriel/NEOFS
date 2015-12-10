@@ -285,7 +285,7 @@ int delete_dentry(inode_nr parent_ino,char * name,__u16 i_mode)
 void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned int info[])
 {
 	block_nr tmpnr;
-	unsigned short true_cur_len,true_prev_len;
+	unsigned short true_prev_len;
 	struct neo_dir_entry prev;
 	struct neo_dir_entry del;
 	struct neo_dir_entry blank;
@@ -298,7 +298,6 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 	fseek(fp,(blkaddr + info[3]),SEEK_SET);
 	fread(&del,8,1,fp);
 	true_prev_len = TRUE_LEN(prev.name_len);
-	true_cur_len = TRUE_LEN(del.name_len);
 
  /*
 	printf("info[0] is %d\n",info[0]);
