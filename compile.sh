@@ -1,5 +1,5 @@
-gcc format.c -lm -Wall -o format
-gcc dumpneofs.c -lm -Wall -o dumpneofs
+gcc format.c -lm -Wall -g -o format
+gcc dumpneofs.c -lm -Wall -g -o dumpneofs
 gcc module_test.c atomic_ops.c -o module_test -lm -Wall -g 
 gcc atomic_ops.c -lm -Wall -c -g
 gcc neo_fs.c -Wall `pkg-config fuse --cflags --libs` -c -Wall -g

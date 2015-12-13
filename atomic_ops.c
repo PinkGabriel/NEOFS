@@ -325,8 +325,12 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 		} else {				/*not the last block of this inode*/
 			if (blknr <= DIRECT_INDEX_END) {
 				free_block(parent.i_block[blknr]);
-				fseek(fp,(block_to_addr(parent.i_block[IN_INDEX_BGN]) + (parent.i_blocks - 1 - IN_INDEX_BGN) * 4),SEEK_SET);
-				fread(&tmpnr,4,1,fp);
+				if (parent.i_blocks <= IN_INDEX_BGN) {
+					tmpnr = parent.i_block[parent.i_blocks - 1];
+				} else {
+					fseek(fp,(block_to_addr(parent.i_block[IN_INDEX_BGN]) + (parent.i_blocks - 1 - IN_INDEX_BGN) * 4),SEEK_SET);
+					fread(&tmpnr,4,1,fp);
+				}
 				parent.i_block[blknr] = tmpnr;
 			} else {
 				fseek(fp,(block_to_addr(parent.i_block[IN_INDEX_BGN]) + (blknr - IN_INDEX_BGN) * 4),SEEK_SET);
@@ -385,7 +389,7 @@ int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	block = origin;
 	cur = origin;
 	fseek(fp,blkaddr,SEEK_SET);
-	fread(block,BLOCK_SIZE,1,fp);		/*read this block into memory*/
+	fread(origin,BLOCK_SIZE,1,fp);		/*read this block into memory*/
 
 	if(cur->inode == 0) {			/*beginning is a blank，then make block points to the first dentry*/
 		block += cur->rec_len;
@@ -435,7 +439,7 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	block = origin;
 	cur = origin;
 	fseek(fp,blkaddr,SEEK_SET);
-	fread(block,BLOCK_SIZE,1,fp);		/*read the block into memory*/
+	fread(origin,BLOCK_SIZE,1,fp);		/*read the block into memory*/
 
 	if(cur->inode == 0) {			/*beginning is blank,then make block point to the first dentry*/
 		if (cur->rec_len >= need_len) {
@@ -589,8 +593,8 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 		fread(ibcache.ibitmap,1,BLOCK_SIZE,fp);
 		ibcache.groupnr = bgnr;
 	}
-	for (i = 0; i < BLOCK_SIZE; i++) {		/*32 is the first 256 + 2or4 used blocks in the bitmap*/
-		if (ibcache.ibitmap[i] != 0xFF) {	/*find empty block*/
+	for (i = 0; i < (BLOCK_SIZE / 4); i++) {
+		if (ibcache.ibitmap[i] != 0xFF) {
 			for (j = 0, c = 0x80; j < 8; j++) {
 				if ((ibcache.ibitmap[i]&c) == 0) {
 					ibcache.ibitmap[i] += c;
@@ -964,7 +968,7 @@ __u64 inode_to_addr(inode_nr ino)
 	r = ino % neo_sb_info.s_inodes_per_group;
 	if(is_powerof_357(groupnr))
 		offset += BLOCK_SIZE * 2;		/*SB&GDT 2Blocks*/
-	offset += (BLOCK_SIZE * BLOCKS_PER_GROUP * groupnr + r * neo_sb_info.s_inode_size);
+	offset += (__u64)BLOCK_SIZE * BLOCKS_PER_GROUP * groupnr + r * neo_sb_info.s_inode_size;
 	return offset;
 }
 
@@ -992,7 +996,7 @@ __u64 i_block_to_addr(block_nr blknr,block_nr i_block[])
 
 __u64 inline block_to_addr(block_nr blk)
 {
-	__u64 res = blk * 4096;
+	__u64 res = (__u64)blk * 4096;
 	return res;
 }
 

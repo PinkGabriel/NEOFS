@@ -374,7 +374,7 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	char fname[MAX_FILE_NAME];
 	__u64 blkaddr;
 	__u32 *p = NULL;
-	void *block;
+	void *block,*origin;
 	struct stat st;
 	struct neo_inode dirinode;
 	struct neo_dir_entry *cur;
@@ -385,10 +385,7 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		return 0;
 	}
 	blkcnt = dirinode.i_blocks;
-	block = (void *)malloc(BLOCK_SIZE);
-	cur = block;
-	offset_prev = 0;
-	offset_cur = 0;
+	origin = (void *)malloc(BLOCK_SIZE);
 	memset(fname,0,MAX_FILE_NAME);
 	if (blkcnt <= 12) {
 		n = blkcnt;
@@ -398,7 +395,11 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	for (i = 0; i < n; i++) {
 		blkaddr = block_to_addr(dirinode.i_block[i]);
 		fseek(fp,blkaddr,SEEK_SET);
-		fread(block,BLOCK_SIZE,1,fp);
+		fread(origin,BLOCK_SIZE,1,fp);
+		block = origin;
+		cur = origin;
+		offset_prev = 0;
+		offset_cur = 0;
 		if (cur->inode == 0) {
 			offset_prev += cur->rec_len;
 			offset_cur += cur->rec_len;
@@ -433,7 +434,11 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		for (i = 0; i < n; i++) {
 			blkaddr = block_to_addr(p[i]);
 			fseek(fp,blkaddr,SEEK_SET);
-			fread(block,BLOCK_SIZE,1,fp);
+			fread(origin,BLOCK_SIZE,1,fp);
+			block = origin;
+			cur = origin;
+			offset_prev = 0;
+			offset_cur = 0;
 			if (cur->inode == 0) {
 				offset_prev += cur->rec_len;
 				offset_cur += cur->rec_len;

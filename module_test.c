@@ -160,8 +160,17 @@ void print_i_block(inode_nr ino)
 	}
 }
 
+__u64 test()
+{
+	return 100000000;
+}
+
 int main(int argc,char *argv[])
 {
+	unsigned char b[4096];
+	unsigned char i[4096];
+	unsigned long l;
+	
 	struct neo_inode write_inode;
 	inode_nr find;
 	printf("this is a module test program\n\n");
@@ -192,6 +201,21 @@ int main(int argc,char *argv[])
 	fseek(fp,16768,SEEK_SET);
 	fread(&write_inode,sizeof(struct neo_inode),1,fp);
 	printf("inode blocks : %u\n",write_inode.i_blocks);
+
+	l = 15*32768*4096L;
+	fseek(fp, l, SEEK_SET);
+	fread(b, 1, 4096, fp);
+
+	//l = 16*32768*4096;
+	//l = ((unsigned long)16*32768*4096 + 1000000);
+	l = test()*16*32768*4096;
+	fseek(fp, l + 100000000, SEEK_SET);
+	fread(i, 1, 4096, fp);
+
+	//printf("size of unsigned long : %d\n",sizeof(unsigned long));
+	printf("b : %d\n",b[32]);
+	printf("i : %d\n",i[32]);
+
 	return 0;
 }
 

@@ -139,7 +139,7 @@ int main(int argc,char *argv[])
 #ifdef DEBUG
 		printf("group %d :\n",i);
 #endif
-		__u64 offset = i * BLOCKS_PER_GROUP * BLOCK_SIZE;
+		__u64 offset = (__u64)i * BLOCKS_PER_GROUP * BLOCK_SIZE;
 		fseek(fp,offset,SEEK_SET);
 		if (offset == 0)
 			fseek(fp,1024,SEEK_CUR);//引导块占用1KB

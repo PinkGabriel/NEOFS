@@ -26,10 +26,11 @@ int block_group_format(int bgnum,int groupcnt)
 {
 	unsigned char bbitmap[BLOCK_SIZE];	/*block bitmap*/
 	unsigned char ibitmap[BLOCK_SIZE];	/*inode bitmap*/
+	int rr,ir;
 	struct neo_inode *set_inode_zero;
 	set_inode_zero = (struct neo_inode *)malloc(neo_sb_info.s_inode_size * 8192);	/*8192 is inodes count per group*/
 	memset(set_inode_zero,0,neo_sb_info.s_inode_size * 8192);
-	__u64 offset = bgnum * BLOCKS_PER_GROUP * BLOCK_SIZE;
+	__u64 offset = (__u64)bgnum * BLOCKS_PER_GROUP * BLOCK_SIZE;
 	fseek(fp,offset,SEEK_SET);
 	if (offset == 0)
 		fseek(fp,1024,SEEK_CUR);	/*boot setctor reserved for 1KB*/
@@ -56,19 +57,25 @@ int block_group_format(int bgnum,int groupcnt)
 		fwrite(ibitmap,BLOCK_SIZE,1,fp);
 		fwrite(set_inode_zero,neo_sb_info.s_inode_size * 8192,1,fp);
 	}
-	/*
-	if (bgnum == (groupcnt - 1)) {
+	if (bgnum == (groupcnt - 1) && gd[bgnum].bg_free_blocks_count < 32508) {
 		memset(bbitmap,0xFF,BLOCK_SIZE);
-		memset(bbitmap,0,gd[bgnum].bg_free_blocks_count);
-		memset(bbitmap,0xFF,32);
 		memset(ibitmap,0xFF,BLOCK_SIZE);
-		memset(ibitmap,0,gd[bgnum].bg_free_inodes_count);
+		rr = gd[bgnum].bg_free_blocks_count / 8;
+		ir = gd[bgnum].bg_free_inodes_count / 8;
+		memset(bbitmap + 32,0,rr);
+		memset(ibitmap,0,ir);
 		if (is_powerof_357(bgnum)) {
-			offset += 8192;
 			bbitmap[32] = 0xF0;
+			bbitmap[rr + 32] = 0x0F;
+			fseek(fp,offset + 8192,SEEK_SET);
+		} else {
+			bbitmap[32] = 0xC0;
+			bbitmap[rr + 32] = 0x3F;
+			fseek(fp,offset,SEEK_SET);
 		}
+		fwrite(bbitmap,BLOCK_SIZE,1,fp);
+		fwrite(ibitmap,BLOCK_SIZE,1,fp);
 	}
-	*/
 	free(set_inode_zero);
 	return 0;
 }
@@ -81,7 +88,7 @@ int main(int argc,char *argv[])
 	/*n is the complete block group's count*/
 	int i,n,extraoff;
 	__u32 blkcnt,inocnt;
-	__u16 remainder,iremainder;
+	__u16 remainder,iremainder,rr,ir;
 
 	if (argc > 2){
 		printf("argument error\n");
@@ -122,8 +129,6 @@ int main(int argc,char *argv[])
 	printf("file length is %ld bytes\n",length);
 	printf("block count is %u \n",blkcnt);
 	printf("group count is %d \n",groupcnt);
-	printf("remainder is %u \n",remainder);
-	printf("iremainder is %u \n",iremainder);
 #endif
 	neo_sb_info.s_inodes_count = inocnt;
 	neo_sb_info.s_blocks_count = blkcnt;
@@ -164,8 +169,12 @@ int main(int argc,char *argv[])
 		gd[i].bg_block_bitmap = (BLOCKS_PER_GROUP * i) + extraoff;
 		gd[i].bg_inode_bitmap = (BLOCKS_PER_GROUP * i) + extraoff + 1;
 		gd[i].bg_inode_table = (BLOCKS_PER_GROUP * i) + extraoff + 2;
-		gd[i].bg_free_blocks_count = remainder - 2 - 256 - extraoff;
-		gd[i].bg_free_inodes_count = iremainder;
+		rr = remainder - 2 - 256 - extraoff;
+		ir = iremainder;
+		gd[i].bg_free_blocks_count = (rr % 8)?(rr - (rr % 8)):rr;
+		gd[i].bg_free_inodes_count = (ir % 8)?(ir - (ir % 8)):ir;
+		printf("remainder is %u \n",gd[i].bg_free_blocks_count);
+		printf("iremainder is %u \n",gd[i].bg_free_inodes_count);
 		gd[i].bg_used_dirs_count = 0;
 	}
 	neo_sb_info.s_free_blocks_count -= sb_gdt_backups * 2;			/*2 is sb and gdt backups*/
@@ -175,7 +184,7 @@ int main(int argc,char *argv[])
 #ifdef DEBUG
 	printf("sb inodes count: %d\n",neo_sb_info.s_inodes_count);
 	printf("sb blocks count: %d\n",neo_sb_info.s_blocks_count);
-	printf("sb groups count: %d\n",neo_sb_info.s_groups_count);
+	printf("sb groups count: %d\n",groupcnt);
 	printf("sb free inodes count: %d\n",neo_sb_info.s_free_inodes_count);
 	printf("sb free blocks count: %d\n",neo_sb_info.s_free_blocks_count);
 	printf("sb log block size: %d\n",neo_sb_info.s_log_block_size);
