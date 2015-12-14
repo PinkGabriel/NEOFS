@@ -49,7 +49,7 @@ struct neo_super_block neo_sb_info;
 struct neo_group_desc *neo_gdt;
 struct block_bitmap_cache bbcache;
 struct inode_bitmap_cache ibcache;
-__u16 file_open_list[MAX_OPEN_COUNT];
+__u32 file_open_list[MAX_OPEN_COUNT];
 
 /*
 static int neo_readlink(const char *path, char *buf, size_t size)
@@ -179,8 +179,10 @@ void *neo_init (struct fuse_conn_info *conn)
 	fread(neo_gdt,sizeof(struct neo_group_desc),groupcnt,fp);
 
 	bbcache.groupnr = -1;
+	bbcache.lastzero = FIRST_FREE_BLOCK;
 	memset(bbcache.bbitmap,0,BLOCK_SIZE);
 	ibcache.groupnr = -1;
+	ibcache.lastzero = FIRST_FREE_BLOCK;
 	memset(ibcache.ibitmap,0,BLOCK_SIZE);
 	memset(file_open_list,0,MAX_OPEN_COUNT);
 
@@ -194,6 +196,7 @@ static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
 {
 	inode_nr parent_ino;
 	inode_nr ino;
+	__u16 filetype;
 	int res;
 	char *parent_path = strdup(path);
 	char *name = strrchr(parent_path,'/');
@@ -216,13 +219,18 @@ static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
 		res = -EEXIST;
 		goto mn_err_out;
 	}
+	if ((mode & S_IFREG) == S_IFREG) {
+		filetype = 1;
+	} else {
+		filetype = 2;
+	}
 	if ((neo_sb_info.s_free_inodes_count > 1) && (neo_sb_info.s_free_blocks_count > 1)) {
-		ino = get_inode(parent_ino,1);		/*get a inode for reg file*/
+		ino = get_inode(parent_ino,filetype);	/*get a inode for reg file*/
 	} else {
 		res = -ENOSPC;				/*not enough space*/
 		goto mn_err_out;
 	}
-	add_dentry(parent_ino,ino,name,1);
+	add_dentry(parent_ino,ino,name,filetype);
 	free(parent_path);
 	return 0;
 mn_err_out:
@@ -234,6 +242,7 @@ static int neo_mkdir(const char *path, mode_t mode)
 {
 	inode_nr parent_ino;
 	inode_nr ino;
+	__u16 filetype;
 	int res;
 	char *parent_path = strdup(path);
 	char *name = strrchr(parent_path,'/');
@@ -256,13 +265,18 @@ static int neo_mkdir(const char *path, mode_t mode)
 		res = -EEXIST;
 		goto md_err_out;
 	}
+	if ((mode & S_IFREG) == S_IFREG) {
+		filetype = 1;
+	} else {
+		filetype = 2;
+	}
 	if ((neo_sb_info.s_free_inodes_count > 1) && (neo_sb_info.s_free_blocks_count > 1)) {
-		ino = get_inode(parent_ino,2);		/*get inode for dir file*/
+		ino = get_inode(parent_ino,filetype);	/*get inode for dir file*/
 	} else {
 		res = -ENOSPC;				/*not enough space*/
 		goto md_err_out;
 	}
-	add_dentry(parent_ino,ino,name,2);
+	add_dentry(parent_ino,ino,name,filetype);
 	free(parent_path);
 	return 0;
 md_err_out:
@@ -374,7 +388,7 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	char fname[MAX_FILE_NAME];
 	__u64 blkaddr;
 	__u32 *p = NULL;
-	void *block,*origin;
+	void *block,*origin = NULL;
 	struct stat st;
 	struct neo_inode dirinode;
 	struct neo_dir_entry *cur;
@@ -466,6 +480,8 @@ static int neo_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			} while ((offset_prev + cur->rec_len) != 4096);
 		}
 	}
+	free(p);
+	free(origin);
 	return 0;
 }
 
@@ -579,8 +595,12 @@ static int neo_read(const char *path, char *buf, size_t size, off_t offset,
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
 	fread(&read_inode,sizeof(struct neo_inode),1,fp);
 
-	if (SIZE_TO_BLKCNT(offset + size) > read_inode.i_blocks) {
+	if (SIZE_TO_BLKCNT(offset + size) > read_inode.i_blocks 
+				|| offset > read_inode.i_size) {
 		return -ESPIPE;
+	}
+	if (offset + size > read_inode.i_size) {
+		size = read_inode.i_size - offset;
 	}
 	start_blk = offset / BLOCK_SIZE;
 	start_r = offset % BLOCK_SIZE;
@@ -605,8 +625,10 @@ static int neo_read(const char *path, char *buf, size_t size, off_t offset,
 		fread(buf + (size - end_r),end_r,1,fp);
 	}
 
+	read_inode.i_atime = time(NULL);
+	fseek(fp,inode_to_addr(ino),SEEK_SET);
+	fwrite(&read_inode,sizeof(struct neo_inode),1,fp);
 	return size;
-
 }
 
 static int neo_write(const char *path, const char *buf, size_t size,
@@ -662,6 +684,7 @@ static int neo_write(const char *path, const char *buf, size_t size,
 		fseek(fp,i_block_to_addr(end_blk,write_inode.i_block),SEEK_SET);
 		fwrite(buf + (size - end_r),end_r,1,fp);
 	}
+	write_inode.i_mtime = time(NULL);
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
 	fwrite(&write_inode,sizeof(struct neo_inode),1,fp);
 	return size;
@@ -799,6 +822,14 @@ static int neo_rename(const char *from, const char *to)
 		delete_dentry(parent_fino,fname,finode.i_mode);
 		add_dentry(parent_tino,fino,tname,finode.i_mode);
 	}
+	pfinode.i_ctime = time(NULL);
+	ptinode.i_ctime = time(NULL);
+	fseek(fp,inode_to_addr(parent_fino),SEEK_SET);
+	fwrite(&pfinode,sizeof(struct neo_inode),1,fp);
+	fseek(fp,inode_to_addr(parent_tino),SEEK_SET);
+	fwrite(&ptinode,sizeof(struct neo_inode),1,fp);
+	free(parent_fpath);
+	free(parent_tpath);
 	return 0;
 rn_err_out:
 	free(parent_fpath);
@@ -918,3 +949,4 @@ int main(int argc, char *argv[])
 	diskimg = strdup(argv[--argc]);
 	return fuse_main(argc, argv, &neo_oper, NULL);
 }
+

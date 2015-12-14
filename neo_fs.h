@@ -121,12 +121,14 @@ struct neo_dir_entry
 struct block_bitmap_cache
 {
 	int groupnr;
+	int lastzero;
 	unsigned char bbitmap[BLOCK_SIZE];
 };
 
 struct inode_bitmap_cache
 {
 	int groupnr;
+	int lastzero;
 	unsigned char ibitmap[BLOCK_SIZE];
 };
 #endif

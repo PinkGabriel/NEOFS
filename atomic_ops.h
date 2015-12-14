@@ -5,7 +5,7 @@
 
 extern FILE *fp;
 
-extern __u16 file_open_list[MAX_OPEN_COUNT];
+extern __u32 file_open_list[MAX_OPEN_COUNT];
 
 extern struct neo_super_block neo_sb_info;
 
