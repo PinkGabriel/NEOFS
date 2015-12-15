@@ -636,7 +636,7 @@ block_nr get_block(inode_nr ino)
 	int i,j;
 	block_nr res;
 	unsigned char c;
-	char *zero = NULL;
+	//char *zero = NULL;
 	__u32 groupcnt = neo_sb_info.s_groups_count;
 	bg_nr bgnr = ino / INODES_PER_GROUP;
 	for (i = 0; i < groupcnt; i++) {
@@ -656,27 +656,24 @@ block_nr get_block(inode_nr ino)
 		fseek(fp,block_to_addr(neo_gdt[bgnr].bg_block_bitmap),SEEK_SET);
 		fread(bbcache.bbitmap,1,BLOCK_SIZE,fp);
 		bbcache.groupnr = bgnr;
-		bbcache.lastzero = FIRST_FREE_BLOCK;
 	}
-	for (i = bbcache.lastzero; i < BLOCK_SIZE; i++) {	/*32 is the first 256 + 2or4 used blocks in the bitmap*/
+	for (i = FIRST_FREE_BLOCK; i < BLOCK_SIZE; i++) {	/*32 is the first 256 + 2or4 used blocks in the bitmap*/
 		if (bbcache.bbitmap[i] != 0xFF){		/*find empty block*/
 			for (j = 0, c = 0x80; j < 8; j++){
 				if ((bbcache.bbitmap[i]&c) == 0){
 					bbcache.bbitmap[i] += c;
 					res = BLOCKS_PER_GROUP * bgnr + 8 * i + j;
+					 /*
 					zero = malloc(BLOCK_SIZE);
 					memset(zero,0,BLOCK_SIZE);
 					fseek(fp, block_to_addr(res), SEEK_SET);
 					fwrite(zero,1,BLOCK_SIZE,fp);
 					free(zero);
-					bbcache.lastzero = i;
+					// */
 					return res;
 				}
 				c = c >> 1;
 			}
-		}
-		if (i == BLOCK_SIZE - 1) {
-			i = FIRST_FREE_BLOCK;
 		}
 	}
 	return NR_ERROR;
