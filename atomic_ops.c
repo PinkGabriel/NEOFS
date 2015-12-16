@@ -618,12 +618,14 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 		fseek(fp,block_to_addr(neo_gdt[bgnr].bg_inode_bitmap),SEEK_SET);
 		fread(ibcache.ibitmap,1,BLOCK_SIZE,fp);
 		ibcache.groupnr = bgnr;
+		ibcache.lastzero = 0;
 	}
-	for (i = 0; i < (BLOCK_SIZE / 4); i++) {
+iretry:	for (i = ibcache.lastzero; i < (BLOCK_SIZE / 4); i++) {
 		if (ibcache.ibitmap[i] != 0xFF) {
 			for (j = 0, c = 0x80; j < 8; j++) {
 				if ((ibcache.ibitmap[i]&c) == 0) {
 					ibcache.ibitmap[i] += c;
+					ibcache.lastzero = i;
 					res = neo_sb_info.s_inodes_per_group * bgnr + 8 * i + j;
 					init_inode(res,i_mode);
 					return res;
@@ -632,7 +634,8 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 			}
 		}
 	}
-	return NR_ERROR;
+	ibcache.lastzero = 0;
+	goto iretry;
 }
 
 /*
@@ -660,14 +663,14 @@ void init_inode(inode_nr res,__u16 i_mode)
 
 /*
  * get_block - allocate block when needed
- * @ino: try to allocate block in the same group within a file
+ * @ino: try to allocate blocks in the same group within a file
  */
 block_nr get_block(inode_nr ino)
 {
 	int i,j;
 	block_nr res;
 	unsigned char c;
-	char *zero = NULL;
+	char *zero = NULL;	/* before allocation,set the block all 0 */
 	__u32 groupcnt = neo_sb_info.s_groups_count;
 	bg_nr bgnr = ino / INODES_PER_GROUP;
 	for (i = 0; i < groupcnt; i++) {
@@ -687,12 +690,14 @@ block_nr get_block(inode_nr ino)
 		fseek(fp,block_to_addr(neo_gdt[bgnr].bg_block_bitmap),SEEK_SET);
 		fread(bbcache.bbitmap,1,BLOCK_SIZE,fp);
 		bbcache.groupnr = bgnr;
+		bbcache.lastzero = FIRST_FREE_BLOCK;
 	}
-	for (i = FIRST_FREE_BLOCK; i < BLOCK_SIZE; i++) {	/* 32 is the first 256 + 2or4 used blocks in the bitmap */
+retry:	for (i = bbcache.lastzero; i < BLOCK_SIZE; i++) {	/* 32 is the first 256 + 2or4 used blocks in the bitmap */
 		if (bbcache.bbitmap[i] != 0xFF){		/* find empty block */
 			for (j = 0, c = 0x80; j < 8; j++){
 				if ((bbcache.bbitmap[i]&c) == 0){
 					bbcache.bbitmap[i] += c;
+					bbcache.lastzero = i;
 					res = BLOCKS_PER_GROUP * bgnr + 8 * i + j;
 					// /*
 					zero = malloc(BLOCK_SIZE);
@@ -707,7 +712,8 @@ block_nr get_block(inode_nr ino)
 			}
 		}
 	}
-	return NR_ERROR;
+	bbcache.lastzero = FIRST_FREE_BLOCK;
+	goto retry;
 }
 
 /*

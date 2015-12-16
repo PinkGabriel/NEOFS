@@ -182,7 +182,7 @@ void *neo_init (struct fuse_conn_info *conn)
 	bbcache.lastzero = FIRST_FREE_BLOCK;
 	memset(bbcache.bbitmap,0,BLOCK_SIZE);
 	ibcache.groupnr = -1;
-	ibcache.lastzero = FIRST_FREE_BLOCK;
+	ibcache.lastzero = 0;
 	memset(ibcache.ibitmap,0,BLOCK_SIZE);
 	memset(file_open_list,0,MAX_OPEN_COUNT);
 

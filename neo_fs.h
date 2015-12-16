@@ -117,6 +117,8 @@ struct neo_dir_entry
 
 /*
  * bitmap cache in the memory
+ * block bitmap lastzero aim to allocate block more quickly
+ * while inode bitmap lastzero accelerate millions of small files' create
  */
 struct block_bitmap_cache
 {
