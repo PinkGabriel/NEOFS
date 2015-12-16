@@ -9,5 +9,5 @@ in samba,when replace,truncate has error
 bug003(important) - resolved,pc hardware not enough
 after a few time's use,speed rapidly declines,need to locate the bottleneck
 
-bug004
+bug004(important) not resolved
 inside the fs,copy a dir to another place,the image file will become larger...strange

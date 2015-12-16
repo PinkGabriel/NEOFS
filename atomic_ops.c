@@ -9,13 +9,17 @@
 #include <syslog.h>
 #include<unistd.h>
 
+/*
+ * path_resolve - resolve file path to inode
+ * @path:file full path
+ */
 inode_nr path_resolve(char *path)
 {
 	inode_nr parent,res;
 	int length;
 	char *pos;
 	char tmp[MAX_FILE_NAME];
-	if (strcmp(path,"/") == 0) {	/*root's inode is 1. 0 is reserved for judge*/
+	if (strcmp(path,"/") == 0) {	/* root's inode is 1. 0 is reserved for judge */
 		return 1;
 	}
 	path++;
@@ -42,12 +46,20 @@ inode_nr path_resolve(char *path)
 	}
 }
 
+/*
+ * search_dentry - get file's inode by file name and parent dir's inode
+ * @ino:parent dir's inode
+ * @name:file's name
+ */
 inode_nr search_dentry(inode_nr ino, char *name)
 {
 	unsigned int blkcnt;
-	/* info[0] is target's inode,info[1] is dentry's rec_len */
-	/* info[2] is prev dentry's offset in the block */
-	/* info[3] is current dentry's offset in the block */
+	/*
+	 * info[0] is target's inode 
+	 * info[1] is dentry's rec_len
+	 * info[2] is prev dentry's offset in the block 
+	 * info[3] is current dentry's offset in the block
+	 */
 	unsigned int info[4] = {0};
 	inode_nr res = NR_ERROR;
 	__u64 inoaddr;
@@ -92,8 +104,15 @@ sd_out:
 	return res;
 }
 
+/*
+ * add_dentry - after get inode successfully,add dentry in the parent dir
+ * @parent_ino: parent dir's inode
+ * @ino: the new file's inode
+ * @name: new file's filename
+ * @i_mode: new file's filetype and authority
+ */
 int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
-{/*after get inode successfully,then add dentry in the parent dir,return 0 for success*/
+{
 	int blkcnt;
 	int i,n;
 	__u32 *p = NULL;
@@ -104,7 +123,7 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 	struct neo_dir_entry dirent;
 
 	fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
-	fread(&parent,sizeof(struct neo_inode),1,fp);	/*read parent dir's inode*/
+	fread(&parent,sizeof(struct neo_inode),1,fp);	/* read parent dir's inode */
 
 	blkcnt = parent.i_blocks;
 	if (blkcnt <= IN_INDEX_BGN) {
@@ -112,7 +131,7 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 	} else {
 		n = IN_INDEX_BGN;
 	}
-	/*first，check all dentries to ensure there's no same-name file*/
+	/* first，check all dentries to ensure there's no same-name file */
 	for (i = 0; i < n; i++) {
 		blkaddr = block_to_addr(parent.i_block[i]);
 		if (blk_search_dentry(blkaddr,name,info) == 0) {
@@ -121,9 +140,9 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 			goto ad_err_out;
 		}
 	}
-	if (blkcnt > IN_INDEX_BGN) {	/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+	if (blkcnt > IN_INDEX_BGN) {	/* dir file's max blocks count is 13,block[12] for indirect addr */
 		n = blkcnt - IN_INDEX_BGN;
-		p = (__u32 *)malloc(4 * n);	/*4 = sizeof(__32)*/
+		p = (__u32 *)malloc(4 * n);
 		fseek(fp,block_to_addr(parent.i_block[IN_INDEX_BGN]),SEEK_SET);
 		fread(p,(4 * n),1,fp);
 		for (i = 0; i < n; i++) {
@@ -136,7 +155,7 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 		}
 	}
 
-	/*then，find empty location to store the dentry in the existing blocks*/
+	/* then，find empty location to store the dentry in the existing blocks */
 	if (blkcnt <= IN_INDEX_BGN) {
 		n = blkcnt;
 	} else {
@@ -151,7 +170,7 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 	if (parent.i_blocks == 0){
 		parent.i_block[0] = get_block(parent_ino);
 		parent.i_blocks += 1;
-		dirent.rec_len = BLOCK_SIZE;			/*the first dentry and meanwhile the last dentry*/
+		dirent.rec_len = BLOCK_SIZE;			/* the first dentry and meanwhile the last dentry */
 		fseek(fp,block_to_addr(parent.i_block[0]),SEEK_SET);
 		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
 
@@ -160,13 +179,13 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 
 	for (i = 0; i < n; i++) {
 		blkaddr = block_to_addr(parent.i_block[i]);
-		if (blk_search_empty_dentry(blkaddr,name,info) == 0) {	/*find the empty location*/
+		if (blk_search_empty_dentry(blkaddr,name,info) == 0) {	/* find the empty location */
 			write_dentry(blkaddr,info,dirent);
 			goto ad_out;
 		}
 	
 	}
-	if (blkcnt > IN_INDEX_BGN) {	/*dir file's max blocks count is 13,block[12] for indirect addr.*/
+	if (blkcnt > IN_INDEX_BGN) {	/* dir file's max blocks count is 13,block[12] for indirect addr */
 		n = blkcnt - IN_INDEX_BGN;
 		fseek(fp,block_to_addr(parent.i_block[IN_INDEX_BGN]),SEEK_SET);
 		fread(p,(4 * n),1,fp);
@@ -179,11 +198,11 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 		}
 	}
 
-	/*if still not allocated，ie,all the existing blocks are full，allocate one more*/
+	/* if still not allocated，ie,all the existing blocks are full，allocate one more */
 	if (blkcnt < IN_INDEX_BGN) {
 		parent.i_block[blkcnt] = get_block(parent_ino);
 		parent.i_blocks += 1;
-		dirent.rec_len = BLOCK_SIZE;		/*the first dentry and meanwhile the last*/
+		dirent.rec_len = BLOCK_SIZE;		/* the first dentry and meanwhile the last */
 		fseek(fp,block_to_addr(parent.i_block[blkcnt]),SEEK_SET);
 		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
 
@@ -194,17 +213,17 @@ int add_dentry(inode_nr parent_ino,inode_nr ino,char * name,__u16 i_mode)
 		parent.i_blocks += 1;
 		fseek(fp,block_to_addr(parent.i_block[IN_INDEX_BGN]),SEEK_SET);
 		fwrite(&tmp,4,1,fp);
-		dirent.rec_len = BLOCK_SIZE;		/*the first dentry and meanwhile the last*/
+		dirent.rec_len = BLOCK_SIZE;		/* the first dentry and meanwhile the last */
 		fseek(fp,block_to_addr(tmp),SEEK_SET);
 		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
 
 		goto ad_out;
-	} else if (blkcnt < ININ_INDEX_BGN) {	/*1036 = 4096/4 + 12，ie,dir file's max blocks count*/
+	} else if (blkcnt < ININ_INDEX_BGN) {		/* 1036 = 4096/4 + 12，ie,dir file's max blocks count */
 		tmp = get_block(parent_ino);
 		parent.i_blocks += 1;
 		fseek(fp,block_to_addr(parent.i_block[IN_INDEX_BGN]) + (blkcnt - IN_INDEX_BGN) * 4,SEEK_SET);
 		fwrite(&tmp,4,1,fp);
-		dirent.rec_len = BLOCK_SIZE;		/*the first dentry and meanwhile the last*/
+		dirent.rec_len = BLOCK_SIZE;		/* the first dentry and meanwhile the last */
 		fseek(fp,block_to_addr(tmp),SEEK_SET);
 		fwrite(&dirent,TRUE_LEN(dirent.name_len),1,fp);
 
@@ -219,14 +238,19 @@ ad_err_out:
 ad_out:
 	parent.i_mtime = time(NULL);
 	fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
-	fwrite(&parent,sizeof(struct neo_inode),1,fp);	/*write back parent dir's inode*/
+	fwrite(&parent,sizeof(struct neo_inode),1,fp);	/* write back parent dir's inode */
 	free(p);
 	return 0;
 }
 
-int delete_dentry(inode_nr parent_ino,char * name,__u16 i_mode)
+/*
+ * delete_dentry - when delete a file,delete its dir entry from its parent dir
+ * @parent_ino: deleting file's parent dir's inode
+ * @name: deleting file's name
+ * @i_mode: deleting file's type and authority
+ */
+int delete_dentry(inode_nr parent_ino,char *name,__u16 i_mode)
 {
-	/*delete dentry*/
 	int blkcnt;
 	int i,n;
 	__u32 *p = NULL;
@@ -271,12 +295,18 @@ int delete_dentry(inode_nr parent_ino,char * name,__u16 i_mode)
 	free(p);
 	return -1;
 }
+
 /*
- * info[0] = cur->inode;
- * info[1] = cur->rec_len;
- * info[2] = offset_prev;
- * info[3] = offset_cur;
- */	
+ * delete_block_dentry - delete dir entry in parent dir's targeted block
+ * @parent_ino: parent dir's inode
+ * @blknr: the parent dir's data block which contains the deleting file's dentry
+ * @blkaddr: the block's address
+ * @info: information about the deleting dentry
+ *	info[0] is deleting file's inode
+ *	info[1] is deleting dentry's rec_len
+ *	info[2] is deleting dentry's prev dentry's offset in the block
+ *	info[3] is deleting dentry's offset in the block
+ */
 void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned int info[])
 {
 	block_nr tmpnr;
@@ -293,15 +323,8 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 	fread(&del,8,1,fp);
 	true_prev_len = TRUE_LEN(prev.name_len);
 
- /*
-	printf("info[0] is %d\n",info[0]);
-	printf("info[1] is %d\n",info[1]);
-	printf("info[2] is %d\n",info[2]);
-	printf("info[3] is %d\n",info[3]);
-// */
-
-	if ((info[2] == info[3]) && ((info[1] + info[3]) == 4096)) {	/*last dentry in this block*/
-		if (blknr == (parent.i_blocks - 1)) {	/*last block of this inode*/
+	if ((info[2] == info[3]) && ((info[1] + info[3]) == 4096)) {	/* last dentry in this block */
+		if (blknr == (parent.i_blocks - 1)) {	/* last block of this inode */
 			if (blknr <= DIRECT_INDEX_END) {
 				free_block(parent.i_block[blknr]);
 				parent.i_block[blknr] = 0;
@@ -316,7 +339,7 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 				fread(&tmpnr,4,1,fp);
 				free_block(tmpnr);
 			}
-		} else {				/*not the last block of this inode*/
+		} else {				/* not the last block of this inode */
 			if (blknr <= DIRECT_INDEX_END) {
 				free_block(parent.i_block[blknr]);
 				if (parent.i_blocks <= IN_INDEX_BGN) {
@@ -345,30 +368,22 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 		parent.i_blocks--;
 		fseek(fp,inode_to_addr(parent_ino),SEEK_SET);
 		fwrite(&parent,sizeof(struct neo_inode),1,fp);
-	} else if ((info[2] == info[3]) && (info[2] == 0)) {	/*the first dentry of the block,zero offset*/
+	} else if ((info[2] == info[3]) && (info[2] == 0)) {	/* the first dentry of the block,zero offset */
 		del.inode = 0;
 		fseek(fp,blkaddr,SEEK_SET);
 		fwrite(&del,8,1,fp);
-	} else if ((info[2] == info[3]) && (info[2] != 0)) {	/*the first dentry of the block,non-zero offset*/
-		//fseek(fp,blkaddr,SEEK_SET);
-		//fread(&blank,8,1,fp);
-		//blank.rec_len += del.rec_len;
+	} else if ((info[2] == info[3]) && (info[2] != 0)) {	/* the first dentry of the block,non-zero offset */
 		new_blanklen = info[2] + del.rec_len;
 		fseek(fp,blkaddr + 4,SEEK_SET);
-		//fwrite(&blank,8,1,fp);
 		fwrite(&new_blanklen,2,1,fp);
-	} else if (prev.rec_len > true_prev_len) {		/*not the first dentry,after blank*/
+	} else if (prev.rec_len > true_prev_len) {		/* not the first dentry,after blank */
 		prev.rec_len += del.rec_len;
 		fseek(fp,(blkaddr + info[2]),SEEK_SET);
 		fwrite(&prev,8,1,fp);
-		//fseek(fp,(blkaddr + info[2] + true_prev_len),SEEK_SET);
-		//fread(&blank,8,1,fp);
-		//blank.rec_len += del.rec_len;
 		new_blanklen = info[3] - info[2] -true_prev_len + del.rec_len;
 		fseek(fp,(blkaddr + info[2] + true_prev_len + 4),SEEK_SET);
-		//fwrite(&blank,8,1,fp);
 		fwrite(&new_blanklen,2,1,fp);
-	} else if (prev.rec_len == true_prev_len) {		/*not the first dentry,after dentry*/
+	} else if (prev.rec_len == true_prev_len) {		/* not the first dentry,after dentry */
 		prev.rec_len += del.rec_len;
 		fseek(fp,(blkaddr + info[2]),SEEK_SET);
 		fwrite(&prev,8,1,fp);
@@ -378,29 +393,35 @@ void delete_block_dentry(inode_nr parent_ino,int blknr,__u64 blkaddr,unsigned in
 	}
 }
 
+/*
+ * blk_search_dentry - find the dentry whose file name is *name in the selected block
+ * @blkaddr: selected block's address
+ * @name: searching file's name
+ * @info: same with above
+ */
 int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
-{/*find the dentry whose file name is *name in the block.if success return 0，fail return -1*/
+{
 
-	unsigned int offset_prev = 0;		/*previous dentry's offset*/
-	unsigned int offset_cur = 0;		/*current dentry's offset*/
-	struct neo_dir_entry *cur;		/*current dentry*/
+	unsigned int offset_prev = 0;		/* previous dentry's offset */
+	unsigned int offset_cur = 0;		/* current dentry's offset */
+	struct neo_dir_entry *cur;		/* current dentry */
 	char cname[MAX_FILE_NAME] = {'\0'};
 	void *origin,*block;			/* origin for free,block for move pointer */
-						/*only for gnu c，void * can do calculation only in gcc，not for ansi C*/
-						/*block for pointer movement，then cur = block*/
+						/* only for gnu c,void * can do calculation only in gcc，not for ansi C */
+						/* block for pointer movement，then cur = block */
 
 	origin = (void *)malloc(BLOCK_SIZE);
 	block = origin;
 	cur = origin;
 	fseek(fp,blkaddr,SEEK_SET);
-	fread(origin,BLOCK_SIZE,1,fp);		/*read this block into memory*/
+	fread(origin,BLOCK_SIZE,1,fp);		/* read this block into memory */
 
-	if(cur->inode == 0) {			/*beginning is a blank，then make block points to the first dentry*/
+	if(cur->inode == 0) {			/* beginning is a blank,then make block points to the first dentry */
 		block += cur->rec_len;
 		offset_prev += cur->rec_len;
 		offset_cur += cur->rec_len;
 	}
-	do {/*when cur is not the last dentry*/
+	do {					/* when cur is not the last dentry */
 		cur = block;
 		strncpy(cname,cur->name,cur->name_len);
 		if (strcmp(cname,name) == 0) {
@@ -411,13 +432,6 @@ int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 			free(origin);
 			return 0;
 		}
- /*
-		printf("prev: %d   ",offset_prev);
-		printf("cur: %d\n\n",offset_cur);
-		printf("cur->rec_len: %d   ",cur->rec_len);
-		printf("cur->name_len: %d   ",cur->name_len);
-		printf("cur->name: %s\n\n",cur->name);
-// */
 		offset_prev = offset_cur;
 		offset_cur += cur->rec_len;
 		block += cur->rec_len;
@@ -427,25 +441,35 @@ int blk_search_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	return -1;
 }
 
+/*
+ * blk_search_empty_dentry - find empty location in parent dir's block at blkaddr
+ * @blkaddr: searching block's address
+ * @name: to calculate the length neened by the new dentry
+ * @info: information about the blank location in the block
+ * 	info[0] is the order of the dentry in front of the blank we're looking for 
+ * 	info[1] is the rec_len of the dentry in front of the blank
+ * 	info[2] is the offset of the dentry before the dentry in front of the blank
+ * 	info[3] is the offset of the dentry in front of the blank
+ */
 int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
-{/*find empty location in block at blkaddr,return 0 for success,no free space return -1*/
+{
 
-	unsigned int offset_prev = 0;		/*previous dentry's offset*/
-	unsigned int offset_cur = 0;		/*current dentry's offset*/
+	unsigned int offset_prev = 0;		/* previous dentry's offset */
+	unsigned int offset_cur = 0;		/* current dentry's offset */
 	unsigned int order = 0;		
-	struct neo_dir_entry *cur;		/*current dentry*/
+	struct neo_dir_entry *cur;		/* current dentry */
 	unsigned char need_len;
 	unsigned short true_len;
-	void *origin,*block;			/*same with blk_search_dentry*/
+	void *origin,*block;			/* same with blk_search_dentry */
 	need_len = TRUE_LEN(strlen(name)) + 8;
 
 	origin = (void *)malloc(BLOCK_SIZE);
 	block = origin;
 	cur = origin;
 	fseek(fp,blkaddr,SEEK_SET);
-	fread(origin,BLOCK_SIZE,1,fp);		/*read the block into memory*/
+	fread(origin,BLOCK_SIZE,1,fp);		/* read the block into memory */
 
-	if(cur->inode == 0) {			/*beginning is blank,then make block point to the first dentry*/
+	if(cur->inode == 0) {			/* beginning is blank,then make block point to the first dentry */
 		if (cur->rec_len >= need_len) {
 			info[0] = order;
 			info[1] = cur->rec_len;
@@ -459,7 +483,7 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 			block += cur->rec_len;
 		}
 	}
-	do {/*when cur is not the last dentry*/
+	do {					/* when cur is not the last dentry */
 		order++;
 		cur = block;
 		true_len = TRUE_LEN(cur->name_len);
@@ -471,12 +495,6 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 			free(origin);
 			return 0;
 		}
- /*
-		printf("prev: %d   ",offset_prev);
-		printf("cur: %d\n\n",offset_cur);
-		printf("cur->rec_len: %d   ",cur->rec_len);
-		printf("cur->name_len: %d   ",cur->name_len);
-// */
 		offset_prev = offset_cur;
 		offset_cur += cur->rec_len;
 		block += cur->rec_len;
@@ -485,6 +503,12 @@ int blk_search_empty_dentry(__u64 blkaddr,char *name,unsigned int info[])
 	return -1;
 }
 
+/*
+ * write_dentry - after get the blank location in the block,write dentry in
+ * @blkaddr: address of the block in which the new dentry is written in
+ * @info: same with above
+ * @dirent: the dentry to be written
+ */
 void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent)
 {
 	unsigned short true_len;
@@ -494,21 +518,14 @@ void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent)
 	blank.inode = 0;
 	blank.name_len = 0;
 	blank.file_type = 0;
-
- /*
-	printf("info[0] is %d\n",info[0]);
-	printf("info[1] is %d\n",info[1]);
-	printf("info[2] is %d\n",info[2]);
-	printf("info[3] is %d\n",info[3]);
-// */
 	true_len = TRUE_LEN(dirent.name_len);
-	if (info[0] == 0) {				/*blank at the beginning of the block*/
+	if (info[0] == 0) {				/* blank at the beginning of the block */
 		dirent.rec_len = info[1];
 		fseek(fp,blkaddr,SEEK_SET);
 		fwrite(&dirent,true_len,1,fp);
 		blank.rec_len = info[1] - true_len;
 		fwrite(&blank,8,1,fp);
-	} else if ((info[1] + info[3]) == 4096) {	/*blank at the end of the block*/
+	} else if ((info[1] + info[3]) == BLOCK_SIZE) {	/* blank at the end of the block */
 		fseek(fp,blkaddr + info[3],SEEK_SET);
 		fread(&tmp,8,1,fp);
 		tmp.rec_len = TRUE_LEN(tmp.name_len);
@@ -521,7 +538,7 @@ void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent)
 
 		blank.rec_len = dirent.rec_len - true_len;
 		fwrite(&blank,8,1,fp);
-	} else {					/*blank in the middle*/
+	} else {					/* blank in the middle */
 		fseek(fp,blkaddr + info[3],SEEK_SET);
 		fread(&tmp,8,1,fp);
 		mid = tmp.rec_len;
@@ -538,8 +555,13 @@ void write_dentry(__u64 blkaddr,unsigned int info[],struct neo_dir_entry dirent)
 	}
 }
 
+/*
+ * get_inode - allocate an inode when create a file
+ * @ino: parent dir's inode,try to allocate in the same group
+ * @i_mode: filetype of the new file
+ */
 inode_nr get_inode(inode_nr ino,__u16 i_mode)
-{/*ino is the inode of parent dir,update sb and gdt,update bitmap*/
+{
 	int i,j;
 	unsigned char c;
 	unsigned int aver_free_inodes,aver_free_blocks;
@@ -547,7 +569,7 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 	__u32 groupcnt = neo_sb_info.s_groups_count;
 	int bgnr = ino / INODES_PER_GROUP;
 	int prev,tag = 0;
-	if (i_mode == 1) {				/*get inode for reg file*/
+	if (i_mode == 1) {				/* get inode for reg file */
 		for (i = 0; i < groupcnt; i++) {
 			if (neo_gdt[bgnr].bg_free_inodes_count > 0) {
 				neo_sb_info.s_free_inodes_count--;
@@ -557,7 +579,7 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 			}
 			bgnr = (bgnr + 1)%groupcnt;
 		}
-	} else {						/*get inode for dir file*/
+	} else {					/* get inode for dir file */
 		aver_free_inodes = neo_sb_info.s_free_inodes_count / neo_sb_info.s_groups_count;
 		aver_free_blocks = neo_sb_info.s_free_blocks_count / neo_sb_info.s_groups_count;
 		for (i = 0; i < groupcnt; i++) {
@@ -574,7 +596,7 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 				break;
 			}
 			bgnr = (bgnr + 1)%groupcnt;
-		}/*not find the optimal group,make a linar search from the current group*/
+		}/* not find the optimal group,make a linar search from the current group */
 		if (tag == 0) {
 			for (i = 0; i < groupcnt; i++) {
 				if (neo_gdt[bgnr].bg_free_inodes_count > 0) {
@@ -613,6 +635,11 @@ inode_nr get_inode(inode_nr ino,__u16 i_mode)
 	return NR_ERROR;
 }
 
+/*
+ * init_inode - initial the new file's inode
+ * @res: the new file's inode
+ * @i_mode: new file's type and authority
+ */
 void init_inode(inode_nr res,__u16 i_mode)
 {
 	__u64 addr;
@@ -631,12 +658,16 @@ void init_inode(inode_nr res,__u16 i_mode)
 	fwrite(&new_inode,sizeof(struct neo_inode),1,fp);
 }
 
+/*
+ * get_block - allocate block when needed
+ * @ino: try to allocate block in the same group within a file
+ */
 block_nr get_block(inode_nr ino)
-{/*ino for allocation scheme，try to allocate block in ino's group*/
+{
 	int i,j;
 	block_nr res;
 	unsigned char c;
-	//char *zero = NULL;
+	char *zero = NULL;
 	__u32 groupcnt = neo_sb_info.s_groups_count;
 	bg_nr bgnr = ino / INODES_PER_GROUP;
 	for (i = 0; i < groupcnt; i++) {
@@ -657,13 +688,13 @@ block_nr get_block(inode_nr ino)
 		fread(bbcache.bbitmap,1,BLOCK_SIZE,fp);
 		bbcache.groupnr = bgnr;
 	}
-	for (i = FIRST_FREE_BLOCK; i < BLOCK_SIZE; i++) {	/*32 is the first 256 + 2or4 used blocks in the bitmap*/
-		if (bbcache.bbitmap[i] != 0xFF){		/*find empty block*/
+	for (i = FIRST_FREE_BLOCK; i < BLOCK_SIZE; i++) {	/* 32 is the first 256 + 2or4 used blocks in the bitmap */
+		if (bbcache.bbitmap[i] != 0xFF){		/* find empty block */
 			for (j = 0, c = 0x80; j < 8; j++){
 				if ((bbcache.bbitmap[i]&c) == 0){
 					bbcache.bbitmap[i] += c;
 					res = BLOCKS_PER_GROUP * bgnr + 8 * i + j;
-					 /*
+					// /*
 					zero = malloc(BLOCK_SIZE);
 					memset(zero,0,BLOCK_SIZE);
 					fseek(fp, block_to_addr(res), SEEK_SET);
@@ -679,6 +710,10 @@ block_nr get_block(inode_nr ino)
 	return NR_ERROR;
 }
 
+/*
+ * free_inode - free the inode when deleting a file
+ * @ino: file's inode
+ */
 int free_inode(inode_nr ino)
 {
 	bg_nr bgnr = ino / INODES_PER_GROUP;
@@ -719,16 +754,24 @@ int free_inode(inode_nr ino)
 	return 0;
 }
 
+/*
+ * get_selected_blocks - allocate appointed blocks for file
+ * @i_block: file inode's i_block[] array which contains the block index
+ * @ino: file's inode
+ * @start,end: appointed blocks of the file,from 0 to i_blocks - 1
+ */
 void get_selected_blocks(__u32 *i_block,inode_nr ino,__u32 start,__u32 end)
 {
 	int i;
 	int blk_n,blk_r;
 	block_nr blknr,iblknr;
 	__u64 iaddr;
+	/* direct index */
 	if (end <= DIRECT_INDEX_END) {
 		for (i = start; i <= end; i++) {
 			i_block[i] = get_block(ino);
 		}
+	/* in-direct index */
 	} else if (end <= IN_INDEX_END) {
 		if (start <= IN_INDEX_BGN) {
 			i_block[12] = get_block(ino);
@@ -742,6 +785,7 @@ void get_selected_blocks(__u32 *i_block,inode_nr ino,__u32 start,__u32 end)
 			fseek(fp,iaddr + (i - IN_INDEX_BGN) * 4,SEEK_SET);
 			fwrite(&blknr,4,1,fp);
 		}
+	/* in-in-direct index */
 	} else {
 		if (start <= IN_INDEX_BGN) {
 			i_block[12] = get_block(ino);
@@ -779,18 +823,26 @@ void get_selected_blocks(__u32 *i_block,inode_nr ino,__u32 start,__u32 end)
 	}
 }
 
+/*
+ * free_selected_blocks - opposite with above,free appointed blocks of a file
+ * direct index，1-indirect index，2-indirect index block number:0~11,12~1035,1036~1049611
+ * @i_block: file's block index array
+ * @start,end: appointed blocks
+ */
 void free_selected_blocks(__u32 *i_block,__u32 start,__u32 end)
-{/*direct index，1-indirect index，2-indirect index block number:0~11,12~1035,1036~1049611*/
+{
 	int i,j;
 	int begin_page,end_page,begin_remainder,end_remainder;
 	void *block = NULL;
 	void *sub_block = NULL;
 	__u32 *p = NULL;
 	__u32 *q = NULL;
+	/* direct index */
 	if (end <= DIRECT_INDEX_END) {
 		for (i = start; i <= end; i++) {
 			free_block(i_block[i]);
 		}
+	/* in-direct index */
 	} else if (end <= IN_INDEX_END) {
 		for (i = start; i <= DIRECT_INDEX_END; i++) {
 			free_block(i_block[i]);
@@ -805,6 +857,7 @@ void free_selected_blocks(__u32 *i_block,__u32 start,__u32 end)
 		if (start <= IN_INDEX_BGN) {
 			free_block(i_block[IN_INDEX_BGN]);
 		}
+	/* in-in-direct index */
 	} else {
 		for (i = start; i <= DIRECT_INDEX_END; i++) {
 			free_block(i_block[i]);
@@ -871,6 +924,10 @@ void free_selected_blocks(__u32 *i_block,__u32 start,__u32 end)
 	free(sub_block);
 }
 
+/*
+ * free_block - free one block
+ * @blk: number of the block to be freed
+ */
 void free_block(block_nr blk)
 {
 	bg_nr bgnr = blk / BLOCKS_PER_GROUP;
@@ -892,6 +949,10 @@ void free_block(block_nr blk)
 	write_sb_gdt_main(bgnr);
 }
 
+/*
+ * write_sb_gdt_main - when meta data is changed sb&gdt need to be written
+ * @bgnr: the changed block group's number
+ */
 void write_sb_gdt_main(bg_nr bgnr)
 {
 	fseek(fp,1024,SEEK_SET);
