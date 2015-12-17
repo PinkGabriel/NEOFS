@@ -230,7 +230,8 @@ static int neo_mknod(const char *path, mode_t mode, dev_t rdev)
 		res = -ENOSPC;				/*not enough space*/
 		goto mn_err_out;
 	}
-	add_dentry(parent_ino,ino,name,filetype);
+	//add_dentry(parent_ino,ino,name,filetype);
+	add_dentry(parent_ino,ino,name,1);
 	free(parent_path);
 	return 0;
 mn_err_out:
@@ -276,7 +277,8 @@ static int neo_mkdir(const char *path, mode_t mode)
 		res = -ENOSPC;				/*not enough space*/
 		goto md_err_out;
 	}
-	add_dentry(parent_ino,ino,name,filetype);
+	//add_dentry(parent_ino,ino,name,filetype);
+	add_dentry(parent_ino,ino,name,2);
 	free(parent_path);
 	return 0;
 md_err_out:
@@ -595,10 +597,16 @@ static int neo_read(const char *path, char *buf, size_t size, off_t offset,
 	fseek(fp,inode_to_addr(ino),SEEK_SET);
 	fread(&read_inode,sizeof(struct neo_inode),1,fp);
 
+	if (size == 0) {
+		return 0;
+	}
+
 	if (SIZE_TO_BLKCNT(offset + size) > read_inode.i_blocks 
 				|| offset > read_inode.i_size) {
-		return -ESPIPE;
+		//return -ESPIPE;
+		return 0;
 	}
+
 	if (offset + size > read_inode.i_size) {
 		size = read_inode.i_size - offset;
 	}
@@ -657,11 +665,14 @@ static int neo_write(const char *path, const char *buf, size_t size,
 	start = write_inode.i_blocks;
 	end = SIZE_TO_BLKCNT(offset + size);
 	if ((offset + size) > write_inode.i_size) {
-		write_inode.i_size = offset + size;
 		if (end > start) {
+			if ((end - start) > neo_sb_info.s_free_blocks_count) {
+				return -ENOSPC;
+			}
 			get_selected_blocks(write_inode.i_block,ino,start,(end - 1));
 			write_inode.i_blocks = end;
 		}
+		write_inode.i_size = offset + size;
 	}
 	start_blk = offset / BLOCK_SIZE;
 	start_r = offset % BLOCK_SIZE;

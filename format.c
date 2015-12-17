@@ -173,11 +173,12 @@ int main(int argc,char *argv[])
 		ir = iremainder;
 		gd[i].bg_free_blocks_count = (rr % 8)?(rr - (rr % 8)):rr;
 		gd[i].bg_free_inodes_count = (ir % 8)?(ir - (ir % 8)):ir;
+		printf("r align to 8 is %u \n",(rr % 8));
 		printf("remainder is %u \n",gd[i].bg_free_blocks_count);
 		printf("iremainder is %u \n",gd[i].bg_free_inodes_count);
 		gd[i].bg_used_dirs_count = 0;
 	}
-	neo_sb_info.s_free_blocks_count -= sb_gdt_backups * 2;			/*2 is sb and gdt backups*/
+	neo_sb_info.s_free_blocks_count -= sb_gdt_backups * 2 + (rr % 8);	/*2 is sb and gdt backups*/
 	gd[0].bg_free_inodes_count -= 2;
 	gd[0].bg_used_dirs_count = 1;						/*root is a dir*/
 
